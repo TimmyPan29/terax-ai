@@ -36,8 +36,6 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
     const [nonce, setNonce] = useState(0);
     const [loaded, setLoaded] = useState(visible);
     const addressRef = useRef<PreviewAddressBarHandle>(null);
-    const iframeRef = useRef<HTMLIFrameElement>(null);
-    const [isInteracting, setIsInteracting] = useState(false);
 
     useEffect(() => {
       if (visible) {
@@ -48,19 +46,11 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
       return () => clearTimeout(t);
     }, [visible]);
 
-    // Reset interaction state when the tab is hidden
-    useEffect(() => {
-      if (!visible) {
-        setIsInteracting(false);
-      }
-    }, [visible]);
-
     useImperativeHandle(
       ref,
       () => ({
         reload: () => {
           setLoaded(true);
-          setIsInteracting(false);
           setNonce((n) => n + 1);
         },
         focusAddressBar: () => addressRef.current?.focus(),
@@ -83,10 +73,7 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
           ref={addressRef}
           url={url}
           onSubmit={onUrlChange}
-          onReload={() => {
-            setIsInteracting(false);
-            setNonce((n) => n + 1);
-          }}
+          onReload={() => setNonce((n) => n + 1)}
         />
         {showXfoHint ? (
           <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-border/60 bg-amber-500/8 px-3 text-[11px] text-amber-600 dark:text-amber-400">
@@ -109,7 +96,6 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
               : "relative min-h-0 flex-1 bg-background"
           }
           onMouseLeave={() => {
-            setIsInteracting(false);
             // Restore focus to the parent window so keyboard shortcuts work immediately
             // once the user's cursor leaves the active iframe area.
             if (document.activeElement?.tagName === "IFRAME") {
@@ -119,51 +105,25 @@ export const PreviewPane = forwardRef<PreviewPaneHandle, Props>(
         >
           {url ? (
             loaded ? (
-              <div className="relative h-full w-full">
-                <iframe
-                  ref={iframeRef}
-                  key={`${url}#${nonce}`}
-                  src={url}
-                  title="Preview"
-                  className="h-full w-full border-0"
-                  // sandbox grants the bare minimum for a dev preview: scripts,
-                  // same-origin (cookies/storage for the previewed app), forms,
-                  // popups for "open in new tab". Critically OMITS
-                  // `allow-top-navigation*` — without it the iframe cannot
-                  // navigate the parent Tauri webview to an attacker origin,
-                  // which would otherwise expose `window.__TAURI__` IPC.
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
-                  referrerPolicy="no-referrer"
-                  allow="clipboard-read; clipboard-write; fullscreen"
-                />
-
-                {!isInteracting && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsInteracting(true);
-                      requestAnimationFrame(() => {
-                        iframeRef.current?.focus();
-                      });
-                    }}
-                    className="absolute inset-0 z-10 flex items-center justify-center bg-background/5 backdrop-blur-[0.5px] cursor-pointer group transition-all duration-300 hover:bg-background/25"
-                  >
-                    <div className="flex items-center gap-2 rounded-full border border-border/80 bg-card px-4 py-2 text-[12px] font-medium text-foreground shadow-md transition-transform duration-250 group-hover:scale-105">
-                      <HugeiconsIcon
-                        icon={Globe02Icon}
-                        className="size-3.5 text-primary animate-pulse"
-                        strokeWidth={2}
-                      />
-                      <span>Click to interact</span>
-                    </div>
-                  </button>
-                )}
-              </div>
+              <iframe
+                key={`${url}#${nonce}`}
+                src={url}
+                title="Preview"
+                className="h-full w-full border-0"
+                // sandbox grants the bare minimum for a dev preview: scripts,
+                // same-origin (cookies/storage for the previewed app), forms,
+                // popups for "open in new tab". Critically OMITS
+                // `allow-top-navigation*` — without it the iframe cannot
+                // navigate the parent Tauri webview to an attacker origin,
+                // which would otherwise expose `window.__TAURI__` IPC.
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+                referrerPolicy="no-referrer"
+                allow="clipboard-read; clipboard-write; fullscreen"
+              />
             ) : (
               <SuspendedState
                 onReload={() => {
                   setLoaded(true);
-                  setIsInteracting(false);
                   setNonce((n) => n + 1);
                 }}
               />

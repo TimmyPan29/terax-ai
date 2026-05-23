@@ -89,6 +89,46 @@ pub fn run() {
     workspace::init_launch_cwd();
 
     tauri::Builder::default()
+        .setup(|app| {
+            // Build the default menu structure
+            let menu = tauri::menu::Menu::default(app.handle())?;
+
+            // Build tab select items with accelerators (shortcuts CmdOrCtrl+1 to CmdOrCtrl+9)
+            // This allows tab switching to bypass iframe focus blocks natively.
+            let mut tab_items = Vec::new();
+            for i in 1..=9 {
+                let id = format!("tab-select-{}", i);
+                let accelerator = format!("CmdOrCtrl+{}", i);
+                let item = tauri::menu::MenuItemBuilder::new(&format!("Select Tab {}", i))
+                    .id(&id)
+                    .accelerator(&accelerator)
+                    .build(app)?;
+                tab_items.push(item);
+            }
+
+            // Create Tabs submenu
+            let mut tabs_menu = tauri::menu::SubmenuBuilder::new(app, "Tabs");
+            for item in &tab_items {
+                tabs_menu = tabs_menu.item(item);
+            }
+            let tabs_submenu = tabs_menu.build()?;
+
+            // Append the Submenu to the application menu
+            menu.append(&tabs_submenu)?;
+            app.set_menu(menu)?;
+
+            Ok(())
+        })
+        .on_menu_event(|app, event| {
+            let id = event.id().0.as_str();
+            if id.starts_with("tab-select-") {
+                if let Some(idx_str) = id.strip_prefix("tab-select-") {
+                    if let Ok(idx) = idx_str.parse::<usize>() {
+                        let _ = app.emit("terax:select-tab", idx);
+                    }
+                }
+            }
+        })
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Skip restoring VISIBLE — frontend calls window.show() after first
