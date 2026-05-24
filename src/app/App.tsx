@@ -439,17 +439,6 @@ export default function App() {
     void useSnippetsStore.getState().hydrate();
   }, [hydrateSessions]);
 
-  // Listen for native menu tab selections (bypasses iframe keyboard block)
-  useEffect(() => {
-    const unlistenPromise = listen<number>("terax:select-tab", (e) => {
-      const index = e.payload;
-      selectByIndex(index - 1);
-    });
-    return () => {
-      void unlistenPromise.then((unlisten) => unlisten());
-    };
-  }, [selectByIndex]);
-
   const activeTab = tabs.find((t) => t.id === activeId);
   const isTerminalTab = activeTab?.kind === "terminal";
   const isEditorTab = activeTab?.kind === "editor";
@@ -1066,6 +1055,35 @@ export default function App() {
   );
 
   useGlobalShortcuts(shortcutHandlers, { isDisabled: shortcutsDisabled });
+
+  // Listen for native menu tab selections and new tab actions (bypasses iframe keyboard block)
+  useEffect(() => {
+    const unlistenSelect = listen<number>("terax:select-tab", (e) => {
+      const index = e.payload;
+      selectByIndex(index - 1);
+    });
+
+    const unlistenNew = listen<string>("terax:new-tab", (e) => {
+      const kind = e.payload;
+      if (kind === "terminal") {
+        openNewTab();
+      } else if (kind === "preview") {
+        openPreviewTab("");
+      } else if (kind === "editor") {
+        setNewEditorOpen(true);
+      }
+    });
+
+    const unlistenAiToggle = listen<void>("terax:ai-toggle", () => {
+      togglePanelAndFocus();
+    });
+
+    return () => {
+      void unlistenSelect.then((unlisten) => unlisten());
+      void unlistenNew.then((unlisten) => unlisten());
+      void unlistenAiToggle.then((unlisten) => unlisten());
+    };
+  }, [selectByIndex, openNewTab, openPreviewTab, setNewEditorOpen, togglePanelAndFocus]);
 
   const registerTerminalHandle = useCallback(
     (leafId: number, h: TerminalPaneHandle | null) => {

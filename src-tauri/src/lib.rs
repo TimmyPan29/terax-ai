@@ -93,6 +93,26 @@ pub fn run() {
             // Build the default menu structure
             let menu = tauri::menu::Menu::default(app.handle())?;
 
+            // Build native new tab shortcut items (CmdOrCtrl+T, CmdOrCtrl+P, CmdOrCtrl+E)
+            let new_terminal_item = tauri::menu::MenuItemBuilder::new("New Terminal Tab")
+                .id("tab-new-terminal")
+                .accelerator("CmdOrCtrl+T")
+                .build(app)?;
+            let new_preview_item = tauri::menu::MenuItemBuilder::new("New Preview Tab")
+                .id("tab-new-preview")
+                .accelerator("CmdOrCtrl+P")
+                .build(app)?;
+            let new_editor_item = tauri::menu::MenuItemBuilder::new("New Editor Tab")
+                .id("tab-new-editor")
+                .accelerator("CmdOrCtrl+E")
+                .build(app)?;
+
+            // Build native AI toggle shortcut item (CmdOrCtrl+I)
+            let toggle_ai_item = tauri::menu::MenuItemBuilder::new("Toggle AI Panel")
+                .id("ai-toggle")
+                .accelerator("CmdOrCtrl+I")
+                .build(app)?;
+
             // Build tab select items with accelerators (shortcuts CmdOrCtrl+1 to CmdOrCtrl+9)
             // This allows tab switching to bypass iframe focus blocks natively.
             let mut tab_items = Vec::new();
@@ -107,7 +127,14 @@ pub fn run() {
             }
 
             // Create Tabs submenu
-            let mut tabs_menu = tauri::menu::SubmenuBuilder::new(app, "Tabs");
+            let mut tabs_menu = tauri::menu::SubmenuBuilder::new(app, "Tabs")
+                .item(&new_terminal_item)
+                .item(&new_preview_item)
+                .item(&new_editor_item)
+                .separator()
+                .item(&toggle_ai_item)
+                .separator();
+
             for item in &tab_items {
                 tabs_menu = tabs_menu.item(item);
             }
@@ -121,12 +148,27 @@ pub fn run() {
         })
         .on_menu_event(|app, event| {
             let id = event.id().0.as_str();
-            if id.starts_with("tab-select-") {
-                if let Some(idx_str) = id.strip_prefix("tab-select-") {
-                    if let Ok(idx) = idx_str.parse::<usize>() {
-                        let _ = app.emit("terax:select-tab", idx);
+            match id {
+                "tab-new-terminal" => {
+                    let _ = app.emit("terax:new-tab", "terminal");
+                }
+                "tab-new-preview" => {
+                    let _ = app.emit("terax:new-tab", "preview");
+                }
+                "tab-new-editor" => {
+                    let _ = app.emit("terax:new-tab", "editor");
+                }
+                "ai-toggle" => {
+                    let _ = app.emit("terax:ai-toggle", ());
+                }
+                _ if id.starts_with("tab-select-") => {
+                    if let Some(idx_str) = id.strip_prefix("tab-select-") {
+                        if let Ok(idx) = idx_str.parse::<usize>() {
+                            let _ = app.emit("terax:select-tab", idx);
+                        }
                     }
                 }
+                _ => {}
             }
         })
         .plugin(tauri_plugin_process::init())
