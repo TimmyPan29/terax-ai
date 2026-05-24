@@ -1,4 +1,9 @@
 import { Button } from "@/components/ui/button";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
 import { Popover, PopoverAnchor } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
@@ -7,6 +12,7 @@ import {
   Cancel01Icon,
   CodeIcon,
   HashtagIcon,
+  Image01Icon,
   Key01Icon,
   TerminalIcon,
 } from "@hugeicons/core-free-icons";
@@ -248,6 +254,21 @@ export function AiInputBar() {
                 onKeyUp={updateTrigger}
                 onClick={updateTrigger}
                 onSelect={updateTrigger}
+                onPaste={(e) => {
+                  const items = e.clipboardData?.items;
+                  if (!items) return;
+                  const images: File[] = [];
+                  for (const item of Array.from(items)) {
+                    if (item.kind === "file" && item.type.startsWith("image/")) {
+                      const file = item.getAsFile();
+                      if (file) images.push(file);
+                    }
+                  }
+                  if (images.length > 0) {
+                    e.preventDefault();
+                    void c.addFiles(images);
+                  }
+                }}
                 onKeyDown={(e) => {
                   if (pickerOpen) {
                     const items = fileTrigger ? filteredFiles : filteredItems;
@@ -396,6 +417,11 @@ function ChipsRow({
 }) {
   if (files.length === 0 && snippets.length === 0 && commands.length === 0)
     return null;
+  const imageOrder = new Map<string, number>();
+  let imageCount = 0;
+  for (const f of files) {
+    if (f.kind === "image") imageOrder.set(f.id, ++imageCount);
+  }
   return (
     <div className="flex flex-wrap gap-1">
       <AnimatePresence initial={false}>
@@ -455,48 +481,93 @@ function ChipsRow({
             </button>
           </motion.div>
         ))}
-        {files.map((f) => (
-          <motion.div
-            key={f.id}
-            layout
-            initial={{ opacity: 0, scale: 0.92 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.92 }}
-            transition={{ duration: 0.12 }}
-            className="group flex items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 py-0.5 text-[11px]"
-          >
-            {f.kind === "image" && f.url ? (
-              <img src={f.url} alt="" className="size-4 rounded object-cover" />
-            ) : f.kind === "selection" ? (
-              <HugeiconsIcon
-                icon={f.source === "editor" ? CodeIcon : TerminalIcon}
-                size={11}
-                strokeWidth={1.75}
-                className="text-muted-foreground"
-              />
-            ) : (
-              <span className="font-mono text-[10px] text-muted-foreground">
-                {extOf(f.name)}
-              </span>
-            )}
-            <span className="max-w-35 truncate">
-              {f.name}
-              {f.kind === "selection" && f.text ? (
-                <span className="ml-1 text-muted-foreground">
-                  · {selLineCount(f.text)}L
-                </span>
-              ) : null}
-            </span>
-            <button
-              type="button"
-              onClick={() => onRemoveFile(f.id)}
-              className="ml-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
-              aria-label="Remove"
+        {files.map((f) => {
+          if (f.kind === "image") {
+            const preview = f.thumbUrl ?? f.url;
+            return (
+              <motion.div
+                key={f.id}
+                layout
+                initial={{ opacity: 0, scale: 0.92 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.92 }}
+                transition={{ duration: 0.12 }}
+                className="group flex items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 py-0.5 text-[11px]"
+              >
+                <HoverCard openDelay={120} closeDelay={60}>
+                  <HoverCardTrigger asChild>
+                    <span className="flex cursor-default items-center gap-1 font-medium">
+                      <HugeiconsIcon
+                        icon={Image01Icon}
+                        size={11}
+                        strokeWidth={1.75}
+                        className="text-muted-foreground"
+                      />
+                      [image{imageOrder.get(f.id)}]
+                    </span>
+                  </HoverCardTrigger>
+                  {preview ? (
+                    <HoverCardContent side="top" className="w-auto p-1">
+                      <img
+                        src={preview}
+                        alt={f.name}
+                        className="max-h-40 max-w-40 rounded object-contain"
+                      />
+                    </HoverCardContent>
+                  ) : null}
+                </HoverCard>
+                <button
+                  type="button"
+                  onClick={() => onRemoveFile(f.id)}
+                  className="ml-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                  aria-label="Remove image"
+                >
+                  <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+                </button>
+              </motion.div>
+            );
+          }
+          return (
+            <motion.div
+              key={f.id}
+              layout
+              initial={{ opacity: 0, scale: 0.92 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.92 }}
+              transition={{ duration: 0.12 }}
+              className="group flex items-center gap-1 rounded-md border border-border/60 bg-card px-1.5 py-0.5 text-[11px]"
             >
-              <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
-            </button>
-          </motion.div>
-        ))}
+              {f.kind === "selection" ? (
+                <HugeiconsIcon
+                  icon={f.source === "editor" ? CodeIcon : TerminalIcon}
+                  size={11}
+                  strokeWidth={1.75}
+                  className="text-muted-foreground"
+                />
+              ) : (
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {extOf(f.name)}
+                </span>
+              )}
+              <span className="max-w-35 truncate">
+                {f.name}
+                {f.kind === "selection" && f.text ? (
+                  <span className="ml-1 text-muted-foreground">
+                    · {selLineCount(f.text)}L
+                  </span>
+                ) : null}
+              </span>
+              <button
+                type="button"
+                onClick={() => onRemoveFile(f.id)}
+                className="ml-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                aria-label="Remove"
+              >
+                <HugeiconsIcon icon={Cancel01Icon} size={10} strokeWidth={2} />
+              </button>
+            </motion.div>
+          );
+        })}
       </AnimatePresence>
     </div>
   );
