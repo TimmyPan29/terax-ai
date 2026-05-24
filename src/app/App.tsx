@@ -1031,8 +1031,11 @@ export default function App() {
         return activeTab?.kind !== "editor";
       }
       if (id === "ai.newThread") {
-        // Only when focus is inside the AI surface (conversation popup or
-        // the docked input bar) — otherwise Cmd+N falls through.
+        // Enabled whenever the AI conversation popup is open, or when focus is
+        // inside the AI surface (popup or the docked input bar). Clicking the
+        // popup's non-focusable areas doesn't move focus there, so the open
+        // check is what lets Cmd+N fire after clicking anywhere in the window.
+        if (miniOpen) return false;
         const target =
           (e.target as HTMLElement | null) ?? document.activeElement;
         return !(target as HTMLElement | null)?.closest?.(
@@ -1051,7 +1054,7 @@ export default function App() {
       }
       return false;
     },
-    [activeTab],
+    [activeTab, miniOpen],
   );
 
   useGlobalShortcuts(shortcutHandlers, { isDisabled: shortcutsDisabled });
