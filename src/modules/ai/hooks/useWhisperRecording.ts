@@ -79,7 +79,12 @@ export function useWhisperRecording({
         }
         setState("transcribing");
         try {
-          const text = await transcribeBlob(blob, apiKey);
+          let actualKey = apiKey;
+          if (apiKey === "••••••••") {
+            const { getKey } = await import("../lib/keyring");
+            actualKey = (await getKey("openai")) ?? "";
+          }
+          const text = await transcribeBlob(blob, actualKey);
           if (text.trim()) onResult(text.trim());
         } catch (e) {
           console.error("whisper.transcribe", e);

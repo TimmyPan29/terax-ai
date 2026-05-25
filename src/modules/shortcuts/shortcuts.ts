@@ -69,7 +69,7 @@ export const SHORTCUTS: Shortcut[] = [
     id: "shortcuts.open",
     label: "Show keyboard shortcuts",
     group: "General",
-    defaultBindings: [{ [MOD_PROP]: true, key: "k" }],
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "k" }],
   },
   {
     id: "tab.new",

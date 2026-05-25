@@ -24,7 +24,7 @@ import {
 } from "../config";
 import { buildTools, type ToolContext } from "../tools/tools";
 import { compactModelMessagesDetailed } from "./compact";
-import type { ProviderKeys } from "./keyring";
+import { getKey, type ProviderKeys } from "./keyring";
 import { createProxyFetch } from "./proxyFetch";
 
 const localProxyFetch = createProxyFetch({ allowPrivateNetwork: true });
@@ -78,12 +78,18 @@ export async function buildLanguageModel(
   resolvedModelId: string,
   options: BuildModelOptions = {},
 ): Promise<LanguageModel> {
-  if (providerNeedsKey(provider) && !keys[provider]) {
-    throw new Error(
-      `No API key configured for ${provider}. Open Settings → AI to add one.`,
-    );
+  let key = keys[provider] ?? "";
+  if (providerNeedsKey(provider)) {
+    if (key === "••••••••" || !key) {
+      const actualKey = await getKey(provider);
+      if (!actualKey) {
+        throw new Error(
+          `No API key configured for ${provider}. Open Settings → AI to add one.`,
+        );
+      }
+      key = actualKey;
+    }
   }
-  const key = keys[provider] ?? "";
   const lmstudioURL = options.lmstudioBaseURL ?? LMSTUDIO_DEFAULT_BASE_URL;
   const mlxURL = options.mlxBaseURL ?? MLX_DEFAULT_BASE_URL;
   const ollamaURL = options.ollamaBaseURL ?? OLLAMA_DEFAULT_BASE_URL;
