@@ -436,159 +436,14 @@ export const MODELS = [
     tags: ["reasoning", "tools"],
   },
 
-  // ── OpenRouter (gateway — curated cross-provider routes) ──────────────────
+  // ── OpenRouter (gateway; model id is user-supplied at runtime) ────────────
   {
-    id: "anthropic/claude-opus-4-7",
+    id: "openrouter-custom",
     provider: "openrouter",
-    label: "Claude Opus 4.7",
-    hint: "OpenRouter",
-    description: "Anthropic flagship via OpenRouter.",
-    capabilities: { intelligence: 5, speed: 2, cost: 1 },
-    tags: ["vision", "reasoning", "tools", "coding"],
-  },
-  {
-    id: "anthropic/claude-sonnet-4-6",
-    provider: "openrouter",
-    label: "Claude Sonnet 4.6",
-    hint: "OpenRouter",
-    description: "Balanced Claude via OpenRouter.",
-    capabilities: { intelligence: 4, speed: 4, cost: 3 },
-    tags: ["vision", "tools", "coding"],
-  },
-  {
-    id: "openai/gpt-5.5",
-    provider: "openrouter",
-    label: "GPT-5.5",
-    hint: "OpenRouter",
-    description: "OpenAI flagship via OpenRouter.",
-    capabilities: { intelligence: 5, speed: 3, cost: 1 },
-    tags: ["vision", "reasoning", "tools", "coding"],
-  },
-  {
-    id: "openai/gpt-5.4-mini",
-    provider: "openrouter",
-    label: "GPT-5.4 mini",
-    hint: "OpenRouter",
-    description: "Snappy GPT via OpenRouter.",
-    capabilities: { intelligence: 4, speed: 4, cost: 4 },
-    tags: ["vision", "tools"],
-  },
-  {
-    id: "google/gemini-3.1-pro-preview",
-    provider: "openrouter",
-    label: "Gemini 3.1 Pro",
-    hint: "OpenRouter",
-    description: "Google flagship via OpenRouter.",
-    capabilities: { intelligence: 5, speed: 3, cost: 2 },
-    tags: ["vision", "reasoning", "tools", "coding"],
-  },
-  {
-    id: "google/gemini-3.5-flash",
-    provider: "openrouter",
-    label: "Gemini 3.5 Flash",
-    hint: "OpenRouter",
-    description: "High-intelligence, fast multimodal model via OpenRouter.",
-    capabilities: { intelligence: 4, speed: 5, cost: 4 },
-    tags: ["vision", "tools", "coding"],
-  },
-  {
-    id: "google/gemini-3.1-flash-lite",
-    provider: "openrouter",
-    label: "Gemini 3.1 Flash-Lite",
-    hint: "OpenRouter",
-    description: "Extremely fast, lightweight model via OpenRouter.",
-    capabilities: { intelligence: 3, speed: 5, cost: 5 },
-    tags: ["vision", "tools"],
-  },
-  {
-    id: "x-ai/grok-4.20-reasoning",
-    provider: "openrouter",
-    label: "Grok 4.20 Reasoning",
-    hint: "OpenRouter",
-    description: "xAI reasoning via OpenRouter.",
-    capabilities: { intelligence: 5, speed: 2, cost: 2 },
-    tags: ["reasoning", "tools", "coding"],
-  },
-  {
-    id: "deepseek/deepseek-v4-pro",
-    provider: "openrouter",
-    label: "DeepSeek V4 Pro",
-    hint: "OpenRouter",
-    description: "Open-weight coding model.",
-    capabilities: { intelligence: 5, speed: 3, cost: 5 },
-    tags: ["reasoning", "tools", "coding"],
-  },
-  {
-    id: "deepseek/deepseek-reasoner",
-    provider: "openrouter",
-    label: "DeepSeek Reasoner",
-    hint: "OpenRouter",
-    description: "Cheap chain-of-thought reasoner.",
-    capabilities: { intelligence: 5, speed: 2, cost: 5 },
-    tags: ["reasoning", "coding"],
-  },
-  {
-    id: "meta-llama/llama-4-scout-17b-16e-instruct",
-    provider: "openrouter",
-    label: "Llama 4 Scout",
-    hint: "OpenRouter",
-    description: "Meta's efficient multimodal model.",
-    capabilities: { intelligence: 4, speed: 4, cost: 5 },
-    tags: ["vision", "tools"],
-  },
-  {
-    id: "meta-llama/llama-4-maverick",
-    provider: "openrouter",
-    label: "Llama 4 Maverick",
-    hint: "OpenRouter",
-    description: "Meta's flagship open multimodal model.",
-    capabilities: { intelligence: 4, speed: 3, cost: 5 },
-    tags: ["vision", "tools", "coding"],
-  },
-  {
-    id: "moonshotai/kimi-k2.5",
-    provider: "openrouter",
-    label: "Kimi K2.5",
-    hint: "OpenRouter",
-    description: "Moonshot's agentic flagship.",
-    capabilities: { intelligence: 5, speed: 3, cost: 4 },
-    tags: ["vision", "tools", "coding"],
-  },
-  {
-    id: "qwen/qwen3-max",
-    provider: "openrouter",
-    label: "Qwen 3 Max",
-    hint: "OpenRouter",
-    description: "Alibaba's multilingual reasoner.",
-    capabilities: { intelligence: 5, speed: 3, cost: 4 },
-    tags: ["reasoning", "tools", "coding"],
-  },
-  {
-    id: "qwen/qwen3-coder",
-    provider: "openrouter",
-    label: "Qwen 3 Coder",
-    hint: "OpenRouter",
-    description: "Qwen tuned for code.",
-    capabilities: { intelligence: 4, speed: 4, cost: 5 },
-    tags: ["tools", "coding"],
-  },
-  {
-    id: "mistralai/mistral-large-latest",
-    provider: "openrouter",
-    label: "Mistral Large",
-    hint: "OpenRouter",
-    description: "EU-hosted general-purpose flagship.",
-    capabilities: { intelligence: 4, speed: 4, cost: 3 },
-    tags: ["tools", "coding"],
-  },
-  {
-    id: "z-ai/glm-4.6",
-    provider: "openrouter",
-    label: "GLM 4.6",
-    hint: "OpenRouter",
-    description: "Zhipu's long-context agentic model.",
-    capabilities: { intelligence: 4, speed: 4, cost: 4 },
-    tags: ["tools", "coding"],
+    label: "OpenRouter",
+    hint: "Configurable",
+    description: "Any model on OpenRouter by id.",
+    capabilities: { intelligence: 3, speed: 3, cost: 3 },
   },
 
   // ── Generic OpenAI-compatible (user-defined endpoint) ─────────────────────
@@ -638,6 +493,24 @@ export function getModel(id: ModelId): ModelInfo {
   const m = MODELS.find((x) => x.id === id);
   if (!m) throw new Error(`Unknown model: ${id}`);
   return m;
+}
+
+export function isKnownModelId(id: string): id is ModelId {
+  return MODELS.some((x) => x.id === id);
+}
+
+const FREEFORM_PROVIDERS: ReadonlySet<ProviderId> = new Set([
+  "openrouter",
+  "openai-compatible",
+  "lmstudio",
+  "mlx",
+  "ollama",
+]);
+
+// Reasoning models reject tool-call turns whose reasoning was stripped; keep it.
+export function modelKeepsReasoning(id: ModelId): boolean {
+  const m = getModel(id);
+  return (m.tags?.includes("reasoning") ?? false) || FREEFORM_PROVIDERS.has(m.provider);
 }
 
 export const DEFAULT_MODEL_ID: ModelId = "gpt-5.4-mini";
@@ -736,23 +609,7 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "openai/gpt-oss-20b": 128_000,
   "llama-3.3-70b-versatile": 128_000,
   "deepseek-r1-distill-llama-70b": 128_000,
-  "anthropic/claude-opus-4-7": 200_000,
-  "anthropic/claude-sonnet-4-6": 200_000,
-  "openai/gpt-5.5": 1_050_000,
-  "openai/gpt-5.4-mini": 400_000,
-  "google/gemini-3.1-pro-preview": 1_000_000,
-  "google/gemini-3.5-flash": 1_000_000,
-  "google/gemini-3.1-flash-lite": 1_000_000,
-  "x-ai/grok-4.20-reasoning": 2_000_000,
-  "deepseek/deepseek-v4-pro": 1_000_000,
-  "deepseek/deepseek-reasoner": 128_000,
-  "meta-llama/llama-4-scout-17b-16e-instruct": 128_000,
-  "meta-llama/llama-4-maverick": 128_000,
-  "moonshotai/kimi-k2.5": 256_000,
-  "qwen/qwen3-max": 256_000,
-  "qwen/qwen3-coder": 256_000,
-  "mistralai/mistral-large-latest": 128_000,
-  "z-ai/glm-4.6": 128_000,
+  "openrouter-custom": 256_000,
   "openai-compatible-custom": 128_000,
   "lmstudio-local": 32_000,
   "mlx-local": 32_000,

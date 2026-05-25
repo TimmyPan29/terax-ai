@@ -46,7 +46,8 @@ if [[ -z "$__TERAX_HOOKS_LOADED" ]]; then
   }
 
   _terax_preexec() {
-    printf '\e]133;C\e\\'
+    local cmd="${1//[[:cntrl:]]/ }"
+    printf '\e]133;C;%s\e\\' "${cmd[1,256]}"
   }
 
   if (( $+functions[add-zsh-hook] )); then

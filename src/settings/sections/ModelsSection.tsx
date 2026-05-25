@@ -38,6 +38,7 @@ import {
   setOpenaiCompatibleBaseURL,
   setOpenaiCompatibleContextLimit,
   setOpenaiCompatibleModelId,
+  setOpenrouterModelId,
 } from "@/modules/settings/store";
 import {
   Add01Icon,
@@ -99,6 +100,17 @@ const LOCAL_META: Partial<Record<ProviderId, LocalMeta>> = {
     description: "Any OpenAI-compatible endpoint — vLLM, Z.AI, Fireworks, etc.",
     modelHint: null,
   },
+  openrouter: {
+    urlPlaceholder: "",
+    modelPlaceholder: "anthropic/claude-sonnet-4-6, openai/gpt-5.5, …",
+    description: "Any model on OpenRouter — type its full provider/model id.",
+    modelHint: (
+      <>
+        Browse ids at{" "}
+        <span className="font-mono">openrouter.ai/models</span>.
+      </>
+    ),
+  },
 };
 
 export function ModelsSection() {
@@ -117,6 +129,7 @@ export function ModelsSection() {
   const compatContextLimit = usePreferencesStore(
     (s) => s.openaiCompatibleContextLimit,
   );
+  const openrouterModelId = usePreferencesStore((s) => s.openrouterModelId);
 
   useEffect(() => {
     void getAllKeys().then(setKeys);
@@ -166,12 +179,22 @@ export function ModelsSection() {
           contextLimit: compatContextLimit,
           setContextLimit: setOpenaiCompatibleContextLimit,
         };
+      case "openrouter":
+        return {
+          baseURL: "",
+          modelId: openrouterModelId,
+          setBaseURL: async () => {},
+          setModelId: setOpenrouterModelId,
+          noBaseURL: true,
+        };
       default:
         return null;
     }
   };
 
   const isConfigured = (id: ProviderId): boolean => {
+    if (id === "openrouter")
+      return !!keys?.[id] && !!openrouterModelId.trim();
     if (!isLocalProvider(id)) return !!keys?.[id];
     const cfg = localConfig(id);
     if (!cfg) return false;
@@ -193,7 +216,10 @@ export function ModelsSection() {
   const addableProviders = PROVIDERS.filter((p) => !visibleIds.has(p.id));
 
   const removeProvider = (id: ProviderId) => {
-    if (isLocalProvider(id)) {
+    if (id === "openrouter") {
+      void setOpenrouterModelId("");
+      void onClearKey(id);
+    } else if (isLocalProvider(id)) {
       const cfg = localConfig(id);
       if (cfg) {
         void cfg.setModelId("");
@@ -248,14 +274,18 @@ export function ModelsSection() {
         ) : (
           <div className="flex flex-col gap-2">
             {visibleProviders.map((p) =>
-              isLocalProvider(p.id) ? (
+              isLocalProvider(p.id) || p.id === "openrouter" ? (
                 <LocalProviderCard
                   key={p.id}
                   provider={p}
                   configured={configuredIds.has(p.id)}
                   config={localConfig(p.id)!}
                   meta={LOCAL_META[p.id]!}
-                  compatKey={p.id === "openai-compatible" ? keys[p.id] : undefined}
+                  compatKey={
+                    p.id === "openai-compatible" || p.id === "openrouter"
+                      ? keys[p.id]
+                      : undefined
+                  }
                   onSaveKey={(v) => onSaveKey(p.id, v)}
                   onClearKey={() => onClearKey(p.id)}
                   onRemove={() => removeProvider(p.id)}
@@ -285,6 +315,7 @@ type LocalConfig = {
   setModelId: (v: string) => Promise<void>;
   contextLimit?: number;
   setContextLimit?: (v: number) => Promise<void>;
+  noBaseURL?: boolean;
 };
 
 function AddProviderMenu({
@@ -608,8 +639,15 @@ function LocalProviderCard({
   onClearKey: () => Promise<void>;
   onRemove: () => void;
 }) {
-  const { baseURL, modelId, setBaseURL, setModelId, contextLimit, setContextLimit } =
-    config;
+  const {
+    baseURL,
+    modelId,
+    setBaseURL,
+    setModelId,
+    contextLimit,
+    setContextLimit,
+    noBaseURL,
+  } = config;
   const [urlDraft, setUrlDraft] = useState(baseURL);
   const [modelDraft, setModelDraft] = useState(modelId);
   const [contextDraft, setContextDraft] = useState(String(contextLimit ?? ""));
@@ -622,7 +660,8 @@ function LocalProviderCard({
   useEffect(() => setModelDraft(modelId), [modelId]);
   useEffect(() => setContextDraft(String(contextLimit ?? "")), [contextLimit]);
 
-  const supportsKey = provider.id === "openai-compatible";
+  const supportsKey =
+    provider.id === "openai-compatible" || provider.id === "openrouter";
 
   const test = async () => {
     setTestStatus("testing");
@@ -672,30 +711,32 @@ function LocalProviderCard({
       </span>
 
       <div className="mt-0.5 flex flex-col gap-2.5">
-        <FieldRow label="Base URL">
-          <div className="flex flex-1 gap-1.5">
-            <Input
-              value={urlDraft}
-              onChange={(e) => setUrlDraft(e.target.value)}
-              onBlur={() => {
-                const v = urlDraft.trim();
-                if (v !== baseURL) void setBaseURL(v);
-              }}
-              placeholder={meta.urlPlaceholder}
-              spellCheck={false}
-              className="h-8 flex-1 font-mono text-[11.5px]"
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void test()}
-              disabled={!urlDraft.trim()}
-              className="h-8 px-3 text-[11px]"
-            >
-              Test
-            </Button>
-          </div>
-        </FieldRow>
+        {noBaseURL ? null : (
+          <FieldRow label="Base URL">
+            <div className="flex flex-1 gap-1.5">
+              <Input
+                value={urlDraft}
+                onChange={(e) => setUrlDraft(e.target.value)}
+                onBlur={() => {
+                  const v = urlDraft.trim();
+                  if (v !== baseURL) void setBaseURL(v);
+                }}
+                placeholder={meta.urlPlaceholder}
+                spellCheck={false}
+                className="h-8 flex-1 font-mono text-[11.5px]"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void test()}
+                disabled={!urlDraft.trim()}
+                className="h-8 px-3 text-[11px]"
+              >
+                Test
+              </Button>
+            </div>
+          </FieldRow>
+        )}
 
         <FieldRow label="Model ID">
           <Input

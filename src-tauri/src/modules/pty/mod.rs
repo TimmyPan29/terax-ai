@@ -1,3 +1,4 @@
+mod agent_detect;
 mod da_filter;
 #[cfg(windows)]
 mod job;
@@ -13,7 +14,7 @@ use std::thread;
 use portable_pty::PtySize;
 use tauri::ipc::{Channel, Response};
 
-use crate::modules::workspace::{authorize_spawn_cwd, WorkspaceEnv, WorkspaceRegistry};
+use crate::modules::workspace::{authorize_user_spawn_cwd, WorkspaceEnv, WorkspaceRegistry};
 use session::Session;
 
 pub struct PtyState {
@@ -35,6 +36,7 @@ impl Default for PtyState {
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn pty_open(
+    app: tauri::AppHandle,
     state: tauri::State<'_, PtyState>,
     registry: tauri::State<'_, WorkspaceRegistry>,
     cols: u16,
@@ -45,12 +47,13 @@ pub async fn pty_open(
     on_exit: Channel<i32>,
 ) -> Result<u32, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
-    authorize_spawn_cwd(&registry, cwd.as_deref(), &workspace).map_err(|e| {
+    authorize_user_spawn_cwd(&registry, cwd.as_deref(), &workspace).map_err(|e| {
         log::warn!("pty_open: cwd rejected: {e}");
         e
     })?;
+    let id = state.next_id.fetch_add(1, Ordering::Relaxed);
     let session = tauri::async_runtime::spawn_blocking(move || {
-        session::spawn(cols, rows, cwd, workspace, on_data, on_exit).map(|(s, _)| s)
+        session::spawn(id, app, cols, rows, cwd, workspace, on_data, on_exit).map(|(s, _)| s)
     })
     .await
     .map_err(|e| {
@@ -61,7 +64,6 @@ pub async fn pty_open(
         log::error!("pty_open failed: {e}");
         e
     })?;
-    let id = state.next_id.fetch_add(1, Ordering::Relaxed);
     state.sessions.write().unwrap().insert(id, session);
     log::info!("pty opened id={id} cols={cols} rows={rows}");
     Ok(id)
@@ -155,4 +157,28 @@ pub fn pty_close(state: tauri::State<PtyState>, id: u32) -> Result<(), String> {
         log::debug!("pty_close: unknown id={id}");
     }
     Ok(())
+}
+
+// A fresh webview load orphans the previous frontend's sessions in this still
+// running process; reap them on boot before any new tab spawns.
+#[tauri::command]
+pub fn pty_close_all(state: tauri::State<PtyState>) -> Result<usize, String> {
+    let drained: Vec<(u32, Arc<Session>)> = {
+        let mut sessions = state.sessions.write().unwrap();
+        sessions.drain().collect()
+    };
+    let count = drained.len();
+    for (id, s) in drained {
+        if let Err(e) = s.killer.lock().unwrap().kill() {
+            log::debug!("pty_close_all: kill id={id} returned {e}");
+        }
+        thread::Builder::new()
+            .name(format!("terax-pty-drop-{id}"))
+            .spawn(move || session::drop_session(s))
+            .expect("spawn pty drop thread");
+    }
+    if count > 0 {
+        log::info!("pty_close_all: reaped {count} orphaned session(s)");
+    }
+    Ok(count)
 }

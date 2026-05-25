@@ -1,6 +1,6 @@
 mod modules;
 
-use modules::{fs, git, net, pty, secrets, shell, workspace};
+use modules::{agent, fs, git, net, pty, secrets, shell, workspace};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
@@ -23,8 +23,7 @@ fn parse_launch_dir() -> Option<String> {
         if !canon.is_dir() {
             continue;
         }
-        let s = canon.to_string_lossy();
-        return Some(s.strip_prefix(r"\\?\").unwrap_or(&s).to_string());
+        return Some(crate::modules::fs::to_canon(&canon));
     }
     None
 }
@@ -86,7 +85,8 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    workspace::init_launch_cwd();
+    let cli_dir = parse_launch_dir();
+    workspace::init_launch_cwd(cli_dir.as_deref());
 
     tauri::Builder::default()
         .setup(|app| {
@@ -184,6 +184,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(tauri_plugin_log::log::LevelFilter::Info)
@@ -193,20 +194,22 @@ pub fn run() {
         .manage(pty::PtyState::default())
         .manage(shell::ShellState::default())
         .manage(secrets::SecretsState::default())
+        .manage(fs::watch::FsWatchState::default())
         .manage({
             let registry = workspace::WorkspaceRegistry::default();
             workspace::bootstrap_registry(&registry);
-            if let Some(launch_dir) = parse_launch_dir() {
-                let _ = registry.authorize(&launch_dir);
+            if let Some(ref launch_dir) = cli_dir {
+                let _ = registry.authorize(launch_dir);
             }
             registry
         })
-        .manage(LaunchDir(Mutex::new(parse_launch_dir())))
+        .manage(LaunchDir(Mutex::new(cli_dir)))
         .invoke_handler(tauri::generate_handler![
             pty::pty_open,
             pty::pty_write,
             pty::pty_resize,
             pty::pty_close,
+            pty::pty_close_all,
             fs::tree::list_subdirs,
             fs::tree::fs_read_dir,
             fs::file::fs_read_file,
@@ -217,6 +220,8 @@ pub fn run() {
             fs::mutate::fs_create_dir,
             fs::mutate::fs_rename,
             fs::mutate::fs_delete,
+            fs::watch::fs_watch_add,
+            fs::watch::fs_watch_remove,
             fs::search::fs_search,
             fs::search::fs_list_files,
             fs::grep::fs_grep,
@@ -253,6 +258,8 @@ pub fn run() {
             workspace::workspace_current_dir,
             get_launch_dir,
             open_settings_window,
+            agent::agent_enable_claude_hooks,
+            agent::agent_claude_hooks_status,
             secrets::secrets_get,
             secrets::secrets_set,
             secrets::secrets_delete,

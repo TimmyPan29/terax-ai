@@ -83,7 +83,9 @@ function getRecycler(): HTMLDivElement {
 const MCR_BG_ACTIVE = 4.5;
 const MCR_BG_INACTIVE = 1;
 
-function bgActive(prefs: ReturnType<typeof usePreferencesStore.getState>): boolean {
+function bgActive(
+  prefs: ReturnType<typeof usePreferencesStore.getState>,
+): boolean {
   return prefs.backgroundKind === "image" && !!prefs.backgroundImageId;
 }
 
@@ -187,7 +189,7 @@ function createSlot(): Slot {
         void navigator.clipboard
           .readText()
           .then((text) => {
-            if (text) bridge.writeToPty(text);
+            if (text) slot.term.paste(text);
           })
           .catch(() => {});
       }
@@ -280,6 +282,8 @@ export function acquireSlot(params: AcquireParams): Slot {
 }
 
 function bindSlot(slot: Slot, p: AcquireParams): void {
+  const stale =
+    !slot.webglAddon || performance.now() - slot.lastUsedAt > SLOT_STALE_MS;
   slot.currentLeafId = p.leafId;
   slot.lastUsedAt = performance.now();
 
@@ -351,16 +355,22 @@ function bindSlot(slot: Slot, p: AcquireParams): void {
     adapter?.resolveLeaf(p.leafId)?.kickPty(slot.term.cols, slot.term.rows);
   }
 
-  scheduleUnhide(slot);
+  scheduleUnhide(slot, stale);
 
   p.onSearchReady(slot.searchAddon);
 }
 
-function scheduleUnhide(slot: Slot): void {
+function scheduleUnhide(slot: Slot, stale: boolean): void {
   slot.unhideRaf = requestAnimationFrame(() => {
     slot.unhideRaf = requestAnimationFrame(() => {
       slot.unhideRaf = null;
       slot.host.style.visibility = "";
+      if (stale) {
+        if (!slot.webglAddon) attachWebgl(slot);
+        try {
+          slot.term.refresh(0, slot.term.rows - 1);
+        } catch {}
+      }
       const leafId = slot.currentLeafId;
       if (leafId !== null && adapter?.isLeafFocused(leafId)) {
         slot.term.focus();
@@ -490,6 +500,9 @@ function detachSlotFromLeaf(slot: Slot): void {
 }
 
 const WEBGL_RECOVERY_DELAY_MS = 250;
+// Below this a re-shown slot is fresh enough to trust; above it, repaint on
+// unhide to defeat silent GPU/context staleness.
+const SLOT_STALE_MS = 10_000;
 
 function attachWebgl(slot: Slot): void {
   if (slot.webglAddon || !slot.term.element) return;
@@ -516,6 +529,11 @@ function attachWebgl(slot: Slot): void {
         if (slot.webglAddon) return;
         if (!usePreferencesStore.getState().terminalWebglEnabled) return;
         attachWebgl(slot);
+        if (slot.webglAddon) {
+          try {
+            slot.term.refresh(0, slot.term.rows - 1);
+          } catch {}
+        }
       }, WEBGL_RECOVERY_DELAY_MS);
     });
     slot.term.loadAddon(webgl);
@@ -661,7 +679,8 @@ export function getSlotForLeaf(leafId: number): Slot | null {
 }
 
 const IS_MAC =
-  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
+  typeof navigator !== "undefined" &&
+  /Mac|iPhone|iPad/.test(navigator.userAgent);
 
 function isTerminalCopy(e: KeyboardEvent): boolean {
   return (

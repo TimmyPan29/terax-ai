@@ -15,6 +15,7 @@ import {
   LMSTUDIO_DEFAULT_BASE_URL,
   MAX_AGENT_STEPS,
   MLX_DEFAULT_BASE_URL,
+  modelKeepsReasoning,
   OLLAMA_DEFAULT_BASE_URL,
   providerNeedsKey,
   resolveThinkingEnabled,
@@ -228,6 +229,7 @@ export type LocalProviderConfig = {
   ollamaModelId?: string;
   openaiCompatibleBaseURL?: string;
   openaiCompatibleModelId?: string;
+  openrouterModelId?: string;
 };
 
 export function buildConfiguredLanguageModel(
@@ -265,6 +267,13 @@ export function buildConfiguredLanguageModel(
       );
     }
     resolvedId = local.openaiCompatibleModelId.trim();
+  } else if (m.id === "openrouter-custom") {
+    if (!local.openrouterModelId?.trim()) {
+      throw new Error(
+        "OpenRouter: no model id set. Open Settings → Models and enter an OpenRouter model id (e.g. anthropic/claude-sonnet-4-6).",
+      );
+    }
+    resolvedId = local.openrouterModelId.trim();
   }
   return buildLanguageModel(m.provider, keys, resolvedId, {
     lmstudioBaseURL: local.lmstudioBaseURL,
@@ -395,6 +404,7 @@ export type RunAgentOptions = {
   openaiCompatibleBaseURL?: string;
   openaiCompatibleModelId?: string;
   openaiCompatibleContextLimit?: number;
+  openrouterModelId?: string;
   planMode?: boolean;
   projectMemory?: string | null;
   /** User's "deep thinking" toggle. Layered over model capability — ignored for
@@ -415,6 +425,7 @@ export async function runAgentStream(opts: RunAgentOptions) {
     ollamaModelId: opts.ollamaModelId,
     openaiCompatibleBaseURL: opts.openaiCompatibleBaseURL,
     openaiCompatibleModelId: opts.openaiCompatibleModelId,
+    openrouterModelId: opts.openrouterModelId,
   });
   const provider = getModel(modelId).provider;
 
@@ -428,10 +439,7 @@ export async function runAgentStream(opts: RunAgentOptions) {
   const history = await convertToModelMessages(opts.uiMessages);
   const prunedHistory = pruneMessages({
     messages: history,
-    // Keep reasoning in history: thinking models (DeepSeek Reasoner, GLM, Kimi)
-    // reject assistant tool-call turns whose reasoning_content was stripped, and
-    // Anthropic extended thinking needs the signed thinking block passed back.
-    reasoning: "none",
+    reasoning: modelKeepsReasoning(modelId) ? "none" : "before-last-message",
     emptyMessages: "remove",
   });
   const compact = compactModelMessagesDetailed(
