@@ -9,6 +9,7 @@ import {
   registerPromptTracker,
 } from "./osc-handlers";
 import { openPty, type PtySession } from "./pty-bridge";
+import { stitchUtf8 } from "./utf8-stream";
 import {
   acquireSlot,
   applyBackgroundActive,
@@ -49,6 +50,9 @@ type Session = {
   snapshot: string | null;
   searchQuery: string | null;
   dormantRing: DormantRing;
+  // Incomplete trailing UTF-8 bytes (≤3) from the last PTY chunk, held so a
+  // multi-byte char is never torn across the live-term / dormant-ring boundary.
+  utf8Tail: Uint8Array | null;
   hasSlot: boolean;
   // True if the slot was in alt-screen mode (TUI like vim, htop, dofek)
   // at the most recent release. Read once on the next bind to trigger a
@@ -180,6 +184,7 @@ function ensureSession(leafId: number, initialCwd?: string): Session {
     snapshot: null,
     searchQuery: null,
     dormantRing: new DormantRing(),
+    utf8Tail: null,
     hasSlot: false,
     altScreenAtRelease: false,
   };
@@ -196,9 +201,14 @@ function ensureSession(leafId: number, initialCwd?: string): Session {
 function deliverPtyBytes(leafId: number, bytes: Uint8Array): void {
   const s = sessions.get(leafId);
   if (!s) return;
+  // Stitch UTF-8 across chunks so a split multi-byte char (e.g. CJK) is never
+  // torn between the live term's decoder and the raw dormant ring.
+  const { out, tail } = stitchUtf8(s.utf8Tail, bytes);
+  s.utf8Tail = tail;
+  if (out.length === 0) return;
   const slot = getSlotForLeaf(leafId);
-  if (slot) slot.term.write(bytes);
-  else s.dormantRing.push(bytes);
+  if (slot) slot.term.write(out);
+  else s.dormantRing.push(out);
 }
 
 async function openPtyForSession(
@@ -332,6 +342,7 @@ export async function respawnSession(
   s.pty = null;
   s.snapshot = null;
   s.dormantRing = new DormantRing();
+  s.utf8Tail = null;
   s.shellExited = false;
   s.pendingExit = null;
   s.altScreenAtRelease = false;
