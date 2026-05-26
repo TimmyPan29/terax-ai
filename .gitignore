@@ -24,3 +24,7 @@ dist-ssr
 *.sw?
 
 *.tsbuildinfo
+
+# Local secrets — never commit
+private_key.md
+*.key
