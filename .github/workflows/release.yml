@@ -15,16 +15,13 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: --target aarch64-apple-darwin
+            args: --target aarch64-apple-darwin --bundles dmg
             rust-target: aarch64-apple-darwin
-          - platform: macos-latest
-            args: --target x86_64-apple-darwin
-            rust-target: x86_64-apple-darwin
           - platform: ubuntu-22.04
-            args: ""
+            args: --bundles deb
             rust-target: ""
           - platform: windows-latest
-            args: ""
+            args: --bundles nsis
             rust-target: ""
 
     runs-on: ${{ matrix.platform }}
@@ -64,24 +61,19 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Disable updater artifacts if signing key is missing
+      - name: Disable updater artifacts (only ship installers)
         shell: bash
         run: |
-          if [ -z "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
-            echo "TAURI_SIGNING_PRIVATE_KEY is missing, disabling updater artifacts..."
-            node -e '
-              const fs = require("fs");
-              const config = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
-              config.bundle.createUpdaterArtifacts = false;
-              fs.writeFileSync("src-tauri/tauri.conf.json", JSON.stringify(config, null, 2), "utf8");
-            '
-          fi
+          node -e '
+            const fs = require("fs");
+            const config = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
+            config.bundle.createUpdaterArtifacts = false;
+            fs.writeFileSync("src-tauri/tauri.conf.json", JSON.stringify(config, null, 2), "utf8");
+          '
 
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Terax ${{ github.ref_name }}"
