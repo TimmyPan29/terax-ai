@@ -606,19 +606,26 @@ export function applyWebglPreference(enabled: boolean): void {
   }
 }
 
-// WKWebView can silently invalidate WebGL textures while the window is occluded
-// without firing onContextLoss — the next paint draws garbled glyphs from a
-// stale atlas. Called on visibilitychange/focus return to force a clean rebuild.
-export function repaintAllActiveSlots(): void {
+// xterm's WebGL canvas makes WebKit run prepareCanvasesForDisplay every frame
+// with a sync IPC round-trip to the GPU XPC — sustained ~9% CPU even at idle.
+// Dispose the addon when the window is backgrounded so xterm falls back to the
+// (cheaper-at-idle) DOM renderer; re-attach on focus return.
+export function suspendAllSlots(): void {
   for (const slot of slots) {
     if (slot.currentLeafId === null) continue;
-    if (slot.webglAddon) {
-      try {
-        slot.webglAddon.clearTextureAtlas();
-      } catch (e) {
-        console.warn("[terax-webgl] clearTextureAtlas failed:", e);
-      }
-    }
+    if (slot.webglAddon) disposeSlotWebgl(slot);
+  }
+}
+
+// Force a full addon rebuild on focus return: clearTextureAtlas alone leaves
+// xterm's renderer holding stale GL texture refs that WebKit may have already
+// dropped during occlusion, producing garbled glyphs. Disposing + re-attaching
+// gives a brand-new GL context and atlas every time.
+export function resumeAllSlots(): void {
+  for (const slot of slots) {
+    if (slot.currentLeafId === null) continue;
+    if (slot.webglAddon) disposeSlotWebgl(slot);
+    attachWebgl(slot);
     try {
       slot.term.refresh(0, slot.term.rows - 1);
     } catch {}

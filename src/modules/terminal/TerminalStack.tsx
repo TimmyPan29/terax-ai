@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { PaneTreeView } from "./PaneTreeView";
 import type { TerminalPaneHandle } from "./TerminalPane";
 import { leafIds } from "./lib/panes";
-import { repaintAllActiveSlots } from "./lib/rendererPool";
+import { resumeAllSlots, suspendAllSlots } from "./lib/rendererPool";
 
 type Props = {
   tabs: Tab[];
@@ -79,28 +79,52 @@ export function TerminalStack({
     }
   }, [terminals]);
 
+  // Suspend xterm's WebGL renderer while the window is backgrounded so WebKit
+  // stops the per-frame canvas-flush + sync IPC to the GPU XPC that otherwise
+  // burns ~9% CPU at idle. Grace period absorbs brief focus blips.
   useEffect(() => {
-    let raf: number | null = null;
+    const SUSPEND_DELAY_MS = 2000;
+    let suspendTimer: ReturnType<typeof setTimeout> | null = null;
+    let resumeRaf: number | null = null;
     let unlistenFocus: (() => void) | undefined;
     let alive = true;
 
-    const schedule = () => {
-      if (raf !== null) return;
-      raf = requestAnimationFrame(() => {
-        raf = null;
-        repaintAllActiveSlots();
+    const activate = () => {
+      if (suspendTimer !== null) {
+        clearTimeout(suspendTimer);
+        suspendTimer = null;
+      }
+      if (resumeRaf !== null) return;
+      resumeRaf = requestAnimationFrame(() => {
+        resumeRaf = null;
+        resumeAllSlots();
       });
     };
 
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") schedule();
+    const deactivate = () => {
+      if (resumeRaf !== null) {
+        cancelAnimationFrame(resumeRaf);
+        resumeRaf = null;
+      }
+      if (suspendTimer !== null) return;
+      suspendTimer = setTimeout(() => {
+        suspendTimer = null;
+        suspendAllSlots();
+      }, SUSPEND_DELAY_MS);
     };
-    document.addEventListener("visibilitychange", onVisibility);
+
+    const evaluate = () => {
+      if (document.visibilityState === "visible" && document.hasFocus()) {
+        activate();
+      } else {
+        deactivate();
+      }
+    };
+
+    document.addEventListener("visibilitychange", evaluate);
 
     getCurrentWindow()
-      .onFocusChanged(({ payload }) => {
-        if (payload) schedule();
-      })
+      .onFocusChanged(evaluate)
       .then((u) => {
         if (alive) unlistenFocus = u;
         else u();
@@ -109,9 +133,10 @@ export function TerminalStack({
 
     return () => {
       alive = false;
-      document.removeEventListener("visibilitychange", onVisibility);
+      document.removeEventListener("visibilitychange", evaluate);
       unlistenFocus?.();
-      if (raf !== null) cancelAnimationFrame(raf);
+      if (suspendTimer !== null) clearTimeout(suspendTimer);
+      if (resumeRaf !== null) cancelAnimationFrame(resumeRaf);
     };
   }, []);
 
