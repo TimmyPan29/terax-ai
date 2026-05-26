@@ -606,6 +606,25 @@ export function applyWebglPreference(enabled: boolean): void {
   }
 }
 
+// WKWebView can silently invalidate WebGL textures while the window is occluded
+// without firing onContextLoss — the next paint draws garbled glyphs from a
+// stale atlas. Called on visibilitychange/focus return to force a clean rebuild.
+export function repaintAllActiveSlots(): void {
+  for (const slot of slots) {
+    if (slot.currentLeafId === null) continue;
+    if (slot.webglAddon) {
+      try {
+        slot.webglAddon.clearTextureAtlas();
+      } catch (e) {
+        console.warn("[terax-webgl] clearTextureAtlas failed:", e);
+      }
+    }
+    try {
+      slot.term.refresh(0, slot.term.rows - 1);
+    } catch {}
+  }
+}
+
 export function applyFontSize(size: number): void {
   for (const slot of slots) {
     if (slot.term.options.fontSize === size) continue;

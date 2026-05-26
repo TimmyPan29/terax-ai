@@ -1,9 +1,11 @@
 import type { Tab } from "@/modules/tabs";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useEffect, useMemo, useRef } from "react";
 import { PaneTreeView } from "./PaneTreeView";
 import type { TerminalPaneHandle } from "./TerminalPane";
 import { leafIds } from "./lib/panes";
+import { repaintAllActiveSlots } from "./lib/rendererPool";
 
 type Props = {
   tabs: Tab[];
@@ -76,6 +78,42 @@ export function TerminalStack({
       if (!live.has(id)) bundles.current.delete(id);
     }
   }, [terminals]);
+
+  useEffect(() => {
+    let raf: number | null = null;
+    let unlistenFocus: (() => void) | undefined;
+    let alive = true;
+
+    const schedule = () => {
+      if (raf !== null) return;
+      raf = requestAnimationFrame(() => {
+        raf = null;
+        repaintAllActiveSlots();
+      });
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") schedule();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    getCurrentWindow()
+      .onFocusChanged(({ payload }) => {
+        if (payload) schedule();
+      })
+      .then((u) => {
+        if (alive) unlistenFocus = u;
+        else u();
+      })
+      .catch(() => {});
+
+    return () => {
+      alive = false;
+      document.removeEventListener("visibilitychange", onVisibility);
+      unlistenFocus?.();
+      if (raf !== null) cancelAnimationFrame(raf);
+    };
+  }, []);
 
   return (
     <div className="relative h-full w-full">
