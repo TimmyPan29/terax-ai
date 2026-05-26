@@ -64,6 +64,19 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Disable updater artifacts if signing key is missing
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY is missing, disabling updater artifacts..."
+            node -e '
+              const fs = require("fs");
+              const config = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
+              config.bundle.createUpdaterArtifacts = false;
+              fs.writeFileSync("src-tauri/tauri.conf.json", JSON.stringify(config, null, 2), "utf8");
+            '
+          fi
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
