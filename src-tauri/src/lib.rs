@@ -144,13 +144,6 @@ pub fn run() {
             menu.append(&tabs_submenu)?;
             app.set_menu(menu)?;
 
-            // Stop AppKit from yanking users out of native fullscreen when
-            // they fat-finger Esc inside a CLI session. Esc keystrokes still
-            // reach JS / xterm via the responder chain — only AppKit's
-            // fullscreen-exit reaction is silenced.
-            #[cfg(target_os = "macos")]
-            modules::macos_window::suppress_esc_exit_fullscreen();
-
             Ok(())
         })
         .on_menu_event(|app, event| {

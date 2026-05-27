@@ -1,8 +1,6 @@
 pub mod agent;
 pub mod fs;
 pub mod git;
-#[cfg(target_os = "macos")]
-pub mod macos_window;
 pub mod net;
 pub mod proc;
 pub mod pty;
