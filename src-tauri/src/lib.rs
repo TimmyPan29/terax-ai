@@ -146,12 +146,10 @@ pub fn run() {
 
             // Stop AppKit from yanking users out of native fullscreen when
             // they fat-finger Esc inside a CLI session. Esc keystrokes still
-            // reach JS / xterm — only the NSWindow exit-fullscreen reaction
-            // is silenced.
+            // reach JS / xterm via the responder chain — only AppKit's
+            // fullscreen-exit reaction is silenced.
             #[cfg(target_os = "macos")]
-            if let Some(main) = app.get_webview_window("main") {
-                modules::macos_window::suppress_esc_exit_fullscreen(&main);
-            }
+            modules::macos_window::suppress_esc_exit_fullscreen();
 
             Ok(())
         })

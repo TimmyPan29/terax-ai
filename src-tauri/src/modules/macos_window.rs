@@ -1,81 +1,66 @@
 //! macOS-specific window behavior tweaks.
 //!
-//! In native fullscreen, AppKit responds to Esc by sending
-//! `cancelOperation:` up the responder chain — NSWindow's default handler
-//! then toggles fullscreen off. That's exactly what we want to disable:
-//! users running CLIs like Claude / Aider in fullscreen frequently fat-finger
-//! Esc and get yanked out of fullscreen mid-task.
-//!
-//! We replace `cancelOperation:` on the window's class with a no-op. The
-//! Esc keystroke still reaches the WebView (xterm, modals, AI panel, etc.) —
-//! only the NSWindow-level side effect is silenced.
+//! In native fullscreen, AppKit treats an unhandled Esc keystroke as
+//! "exit fullscreen" — users running CLIs in fullscreen frequently
+//! fat-finger Esc and get yanked out mid-task. We intercept Esc at
+//! the application event level via NSEvent's local monitor (which
+//! runs before NSApplication's own dispatch, including its
+//! fullscreen-exit handler): when the key window is fullscreen, the
+//! event is forwarded directly to the first responder so xterm / JS /
+//! modals still see it, then swallowed so AppKit's exit path can't
+//! run. Exit fullscreen via the green button or ⌃⌘F.
 
 #![cfg(target_os = "macos")]
 
-use std::os::raw::c_char;
+use std::ptr::NonNull;
 use std::sync::Once;
 
-use tauri::WebviewWindow;
+use block2::RcBlock;
+use objc2_app_kit::{
+    NSApplication, NSEvent, NSEventMask, NSEventType, NSWindowStyleMask,
+};
+use objc2_foundation::MainThreadMarker;
 
-#[repr(C)]
-struct ObjcObject {
-    _private: [u8; 0],
-}
+const KEYCODE_ESC: u16 = 53;
 
-#[repr(C)]
-struct ObjcClass {
-    _private: [u8; 0],
-}
-
-#[repr(transparent)]
-#[derive(Copy, Clone)]
-struct Sel(*const std::ffi::c_void);
-
-type Imp = unsafe extern "C" fn();
-
-unsafe extern "C" {
-    fn object_getClass(obj: *mut ObjcObject) -> *mut ObjcClass;
-    fn sel_registerName(name: *const c_char) -> Sel;
-    fn class_replaceMethod(
-        cls: *mut ObjcClass,
-        name: Sel,
-        imp: Imp,
-        types: *const c_char,
-    ) -> Option<Imp>;
-}
-
-unsafe extern "C" fn cancel_operation_noop(
-    _self: *mut ObjcObject,
-    _sel: Sel,
-    _sender: *mut ObjcObject,
-) {
-}
-
-/// Suppress macOS' Esc-exits-fullscreen behavior on the main window.
-/// Safe to call more than once — the swizzle is installed at most once.
-pub fn suppress_esc_exit_fullscreen(window: &WebviewWindow) {
+/// Install a process-wide NSEvent monitor that swallows Esc when the
+/// key window is in native fullscreen. Safe to call more than once.
+pub fn suppress_esc_exit_fullscreen() {
     static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let block = RcBlock::new(|event: NonNull<NSEvent>| -> *mut NSEvent {
+            let event_ref = unsafe { event.as_ref() };
+            if event_ref.r#type() != NSEventType::KeyDown
+                || event_ref.keyCode() != KEYCODE_ESC
+            {
+                return event.as_ptr();
+            }
 
-    let Ok(ns_window_ptr) = window.ns_window() else {
-        return;
-    };
-    if ns_window_ptr.is_null() {
-        return;
-    }
+            let Some(mtm) = MainThreadMarker::new() else {
+                return event.as_ptr();
+            };
+            let app = NSApplication::sharedApplication(mtm);
+            let Some(window) = app.keyWindow() else {
+                return event.as_ptr();
+            };
+            if !window.styleMask().contains(NSWindowStyleMask::FullScreen) {
+                return event.as_ptr();
+            }
 
-    ONCE.call_once(|| unsafe {
-        let obj = ns_window_ptr as *mut ObjcObject;
-        let cls = object_getClass(obj);
-        if cls.is_null() {
-            return;
+            if let Some(responder) = window.firstResponder() {
+                responder.keyDown(event_ref);
+            }
+            std::ptr::null_mut()
+        });
+
+        unsafe {
+            NSEvent::addLocalMonitorForEventsMatchingMask_handler(
+                NSEventMask::KeyDown,
+                &block,
+            );
         }
-        let sel = sel_registerName(c"cancelOperation:".as_ptr());
-        // Encoded signature: void return, (id self, SEL _cmd, id sender)
-        let types = c"v@:@".as_ptr();
-        let imp: Imp = std::mem::transmute::<
-            unsafe extern "C" fn(*mut ObjcObject, Sel, *mut ObjcObject),
-            Imp,
-        >(cancel_operation_noop);
-        class_replaceMethod(cls, sel, imp, types);
+        // AppKit retains the block; leak the Rust handle so the monitor
+        // stays installed for the life of the process.
+        std::mem::forget(block);
     });
 }
