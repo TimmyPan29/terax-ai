@@ -15,7 +15,7 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: --target aarch64-apple-darwin --bundles dmg
+            args: --target aarch64-apple-darwin --bundles app,dmg
             rust-target: aarch64-apple-darwin
           - platform: ubuntu-22.04
             args: --bundles deb
