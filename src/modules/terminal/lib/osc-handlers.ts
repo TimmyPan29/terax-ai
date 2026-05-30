@@ -1,4 +1,5 @@
 import type { IMarker, Terminal } from "@xterm/xterm";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 
 /**
  * Cross-handler state shared between the OSC 7 cwd handler and the OSC 133
@@ -92,8 +93,17 @@ const MAX_OSC52_BYTES = 100 * 1024; // 100 KiB
  * remote process is a security risk. Write payloads larger than
  * {@link MAX_OSC52_BYTES} are dropped to prevent memory-bomb abuse.
  */
-export function registerClipboardHandler(term: Terminal): () => void {
+export function registerClipboardHandler(
+  term: Terminal,
+  state?: ShellIntegrationState,
+): () => void {
   const d = term.parser.registerOscHandler(52, (data) => {
+    // Reject OSC 52 from untrusted command output, same gate as OSC 7.
+    if (state?.inCommand) return true;
+
+    // Respect user preference.
+    if (!usePreferencesStore.getState().terminalOsc52Clipboard) return true;
+
     const idx = data.indexOf(";");
     if (idx === -1) return true;
 

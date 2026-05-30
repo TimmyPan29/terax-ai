@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { Terminal } from "@xterm/xterm";
 import {
   createShellIntegrationState,
@@ -27,6 +28,14 @@ function makeFakeTerm() {
   } as unknown as Terminal;
   return { term, handlers };
 }
+
+vi.mock("@/modules/settings/preferences", () => ({
+  usePreferencesStore: {
+    getState: vi.fn(() => ({
+      terminalOsc52Clipboard: true,
+    })),
+  },
+}));
 
 describe("OSC 7 cwd handler — gated by OSC 133 in-command state", () => {
   it("accepts OSC 7 when no command is running", () => {
@@ -117,6 +126,9 @@ describe("OSC 52 clipboard handler", () => {
     } else {
       navigator.clipboard.writeText = writeTextMock;
     }
+    vi.mocked(usePreferencesStore.getState).mockReturnValue({
+      terminalOsc52Clipboard: true,
+    } as any);
   });
 
   it("writes decoded base64 text to the clipboard", () => {
@@ -127,6 +139,35 @@ describe("OSC 52 clipboard handler", () => {
     handlers.get(52)?.("c;aGVsbG8=");
 
     expect(writeTextMock).toHaveBeenCalledWith("hello");
+  });
+
+  it("rejects OSC 52 emitted while a command is running", () => {
+    const { term, handlers } = makeFakeTerm();
+    const state = createShellIntegrationState();
+    registerPromptTracker(term, state);
+    registerClipboardHandler(term, state);
+
+    // Simulate command running
+    handlers.get(133)?.("A"); // prompt drawn
+    handlers.get(133)?.("B"); // command begins
+    
+    // Attempt OSC 52
+    handlers.get(52)?.("c;aGVsbG8=");
+
+    expect(writeTextMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects OSC 52 if user preference is disabled", () => {
+    vi.mocked(usePreferencesStore.getState).mockReturnValue({
+      terminalOsc52Clipboard: false,
+    } as any);
+
+    const { term, handlers } = makeFakeTerm();
+    registerClipboardHandler(term);
+
+    handlers.get(52)?.("c;aGVsbG8=");
+
+    expect(writeTextMock).not.toHaveBeenCalled();
   });
 
   it("ignores read queries (Pd === '?')", () => {
