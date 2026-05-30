@@ -26,6 +26,7 @@ import {
   setTerminalFontFamily,
   setTerminalLetterSpacing,
   setTerminalFontSize,
+  setTerminalOsc52Clipboard,
   setTerminalScrollback,
   setTerminalWebglEnabled,
   setVimMode,
@@ -67,6 +68,9 @@ export function GeneralSection() {
   const showHidden = usePreferencesStore((s) => s.showHidden);
   const terminalWebglEnabled = usePreferencesStore(
     (s) => s.terminalWebglEnabled,
+  );
+  const terminalOsc52Clipboard = usePreferencesStore(
+    (s) => s.terminalOsc52Clipboard,
   );
   const terminalFontFamily = usePreferencesStore((s) => s.terminalFontFamily);
   const terminalLetterSpacing = usePreferencesStore(
@@ -217,6 +221,15 @@ export function GeneralSection() {
           <Switch
             checked={terminalWebglEnabled}
             onCheckedChange={(v) => void setTerminalWebglEnabled(v)}
+          />
+        </SettingRow>
+        <SettingRow
+          title="OSC 52 clipboard access"
+          description="Allow terminal applications (like tmux or ssh) to write text to your system clipboard."
+        >
+          <Switch
+            checked={terminalOsc52Clipboard}
+            onCheckedChange={(v) => void setTerminalOsc52Clipboard(v)}
           />
         </SettingRow>
         <SettingRow
