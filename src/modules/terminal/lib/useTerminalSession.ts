@@ -268,7 +268,7 @@ function bindLeafToSlot(leafId: number, s: Session): void {
         },
         shellState,
       );
-      const osc52 = registerClipboardHandler(term, shellState);
+      const osc52 = registerClipboardHandler(term);
       return [prompt.dispose, cwd, osc52];
     },
     onSearchReady: (addon) => s.callbacks.onSearchReady?.(addon),

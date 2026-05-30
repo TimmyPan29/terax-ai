@@ -93,14 +93,8 @@ const MAX_OSC52_BYTES = 100 * 1024; // 100 KiB
  * remote process is a security risk. Write payloads larger than
  * {@link MAX_OSC52_BYTES} are dropped to prevent memory-bomb abuse.
  */
-export function registerClipboardHandler(
-  term: Terminal,
-  state?: ShellIntegrationState,
-): () => void {
+export function registerClipboardHandler(term: Terminal): () => void {
   const d = term.parser.registerOscHandler(52, (data) => {
-    // Reject OSC 52 from untrusted command output, same gate as OSC 7.
-    if (state?.inCommand) return true;
-
     // Respect user preference.
     if (!usePreferencesStore.getState().terminalOsc52Clipboard) return true;
 

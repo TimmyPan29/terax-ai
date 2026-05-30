@@ -141,21 +141,7 @@ describe("OSC 52 clipboard handler", () => {
     expect(writeTextMock).toHaveBeenCalledWith("hello");
   });
 
-  it("rejects OSC 52 emitted while a command is running", () => {
-    const { term, handlers } = makeFakeTerm();
-    const state = createShellIntegrationState();
-    registerPromptTracker(term, state);
-    registerClipboardHandler(term, state);
 
-    // Simulate command running
-    handlers.get(133)?.("A"); // prompt drawn
-    handlers.get(133)?.("B"); // command begins
-    
-    // Attempt OSC 52
-    handlers.get(52)?.("c;aGVsbG8=");
-
-    expect(writeTextMock).not.toHaveBeenCalled();
-  });
 
   it("rejects OSC 52 if user preference is disabled", () => {
     vi.mocked(usePreferencesStore.getState).mockReturnValue({
