@@ -199,11 +199,20 @@ export const MODELS = [
 
   // ── Anthropic ─────────────────────────────────────────────────────────────
   {
+    id: "claude-opus-4-8",
+    provider: "anthropic",
+    label: "Claude Opus 4.8",
+    hint: "Best",
+    description: "Anthropic's latest flagship for code and long reasoning.",
+    capabilities: { intelligence: 5, speed: 2, cost: 1 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+  },
+  {
     id: "claude-opus-4-7",
     provider: "anthropic",
     label: "Claude Opus 4.7",
-    hint: "Best",
-    description: "Anthropic's flagship for long reasoning.",
+    hint: "Legacy",
+    description: "Previous-gen flagship for long reasoning.",
     capabilities: { intelligence: 5, speed: 2, cost: 1 },
     tags: ["vision", "reasoning", "tools", "coding"],
   },
@@ -534,6 +543,7 @@ const THINKING_OPTIONAL: ReadonlySet<string> = new Set([
   "gpt-5.4-nano",
   "gpt-5.3-codex",
   // Anthropic — extended thinking
+  "claude-opus-4-8",
   "claude-opus-4-7",
   "claude-sonnet-4-6",
   "claude-haiku-4-5",
@@ -587,6 +597,7 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "gpt-5.4-nano": 400_000,
   "gpt-5.3-codex": 400_000,
   "gpt-4.1-mini": 128_000,
+  "claude-opus-4-8": 200_000,
   "claude-opus-4-7": 200_000,
   "claude-sonnet-4-6": 200_000,
   "claude-haiku-4-5": 200_000,
@@ -641,6 +652,7 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   "gpt-5.4-nano": { input: 0.1, output: 0.4, cacheRead: 0.01 },
   "gpt-5.3-codex": { input: 1.5, output: 6, cacheRead: 0.15 },
   "gpt-4.1-mini": { input: 0.4, output: 1.6, cacheRead: 0.1 },
+  "claude-opus-4-8": { input: 15, output: 75, cacheRead: 1.5 },
   "claude-opus-4-7": { input: 15, output: 75, cacheRead: 1.5 },
   "claude-opus-4-6": { input: 15, output: 75, cacheRead: 1.5 },
   "claude-sonnet-4-6": { input: 3, output: 15, cacheRead: 0.3 },

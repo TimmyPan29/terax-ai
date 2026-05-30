@@ -1,6 +1,14 @@
 import { generateText, stepCountIs } from "ai";
-import { DEFAULT_MODEL_ID, getModel, type ModelId } from "../config";
-import { buildLanguageModel } from "../lib/agent";
+import {
+  DEFAULT_MODEL_ID,
+  getModel,
+  providerNeedsKey,
+  type ModelId,
+} from "../config";
+import {
+  buildConfiguredLanguageModel,
+  type LocalProviderConfig,
+} from "../lib/agent";
 import type { ProviderKeys } from "../lib/keyring";
 import type { ToolContext } from "../tools/context";
 import { buildFsTools } from "../tools/fs";
@@ -13,9 +21,14 @@ type Args = {
   type: SubagentType;
   prompt: string;
   keys: ProviderKeys;
+  /** Caller's model — the fallback when the subagent has no bound model, or
+   *  when its bound model's provider has no configured key. */
   modelId: ModelId;
   toolContext: ToolContext;
-  lmstudioBaseURL?: string;
+  /** Local/gateway provider config (base URLs + runtime model ids). Needed so
+   *  a subagent can run on lmstudio/mlx/ollama/openrouter/openai-compatible
+   *  models, whether bound or inherited from the caller. */
+  local?: LocalProviderConfig;
   onStep?: (label: string) => void;
 };
 
@@ -23,7 +36,22 @@ type RunResult = {
   summary: string;
   stepCount: number;
   durationMs: number;
+  /** The model the subagent actually ran on (after key-aware resolution). */
+  modelId: ModelId;
 };
+
+/** Bound model wins only when its provider has a usable key; otherwise fall
+ *  back to the caller's model so a subagent never dies for a missing key. */
+function resolveModelId(
+  bound: ModelId | undefined,
+  fallback: ModelId,
+  keys: ProviderKeys,
+): ModelId {
+  if (!bound) return fallback;
+  const provider = getModel(bound).provider;
+  const hasKey = !providerNeedsKey(provider) || !!keys[provider];
+  return hasKey ? bound : fallback;
+}
 
 export async function runSubagent({
   type,
@@ -31,7 +59,7 @@ export async function runSubagent({
   keys,
   modelId,
   toolContext,
-  lmstudioBaseURL,
+  local,
   onStep,
 }: Args): Promise<RunResult> {
   const def = SUBAGENTS[type];
@@ -46,11 +74,11 @@ export async function runSubagent({
     if (t in readOnly) tools[t] = readOnly[t];
   }
 
-  const model = await buildLanguageModel(
-    getModel(modelId).provider,
+  const resolvedModelId = resolveModelId(def.model, modelId, keys);
+  const model = await buildConfiguredLanguageModel(
+    resolvedModelId,
     keys,
-    getModel(modelId).id,
-    { lmstudioBaseURL },
+    local ?? {},
   );
 
   const start = Date.now();
@@ -71,6 +99,7 @@ export async function runSubagent({
     summary: result.text || "(no output)",
     stepCount: result.steps?.length ?? 0,
     durationMs: Date.now() - start,
+    modelId: resolvedModelId,
   };
 }
 
