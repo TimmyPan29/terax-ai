@@ -73,6 +73,58 @@ export function registerPromptTracker(
   };
 }
 
+// ---------------------------------------------------------------------------
+// OSC 52 — clipboard write
+// ---------------------------------------------------------------------------
+
+/** Maximum decoded payload size (bytes) we accept from a single OSC 52. */
+const MAX_OSC52_BYTES = 100 * 1024; // 100 KiB
+
+/**
+ * Registers an OSC 52 handler that writes base64-encoded text to the system
+ * clipboard.
+ *
+ * Sequence format: `OSC 52 ; Pc ; Pd ST`
+ *  - Pc: clipboard selection (`c` = clipboard, `s` = primary, etc.)
+ *  - Pd: base64-encoded UTF-8 text, or `?` to request the current contents.
+ *
+ * Read requests (`?`) are silently ignored — exposing clipboard contents to a
+ * remote process is a security risk. Write payloads larger than
+ * {@link MAX_OSC52_BYTES} are dropped to prevent memory-bomb abuse.
+ */
+export function registerClipboardHandler(term: Terminal): () => void {
+  const d = term.parser.registerOscHandler(52, (data) => {
+    const idx = data.indexOf(";");
+    if (idx === -1) return true;
+
+    const pd = data.slice(idx + 1);
+
+    // Ignore clipboard-read queries.
+    if (pd === "?" || pd === "") return true;
+
+    try {
+      const raw = atob(pd);
+      if (raw.length > MAX_OSC52_BYTES) return true;
+
+      // Decode the raw binary string as UTF-8.
+      const bytes = Uint8Array.from(raw, (ch) => ch.charCodeAt(0));
+      const text = new TextDecoder().decode(bytes);
+
+      void navigator.clipboard.writeText(text).catch(() => {});
+    } catch {
+      // Invalid base64 — silently drop.
+    }
+
+    return true;
+  });
+
+  return () => d.dispose();
+}
+
+// ---------------------------------------------------------------------------
+// OSC 7 — cwd
+// ---------------------------------------------------------------------------
+
 function parseOsc7(data: string): string | null {
   const m = data.match(/^file:\/\/[^/]*(\/.*)$/);
   if (!m) return null;

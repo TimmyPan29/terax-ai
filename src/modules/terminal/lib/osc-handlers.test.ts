@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Terminal } from "@xterm/xterm";
 import {
   createShellIntegrationState,
+  registerClipboardHandler,
   registerCwdHandler,
   registerPromptTracker,
 } from "./osc-handlers";
@@ -94,5 +95,110 @@ describe("OSC 7 cwd handler — gated by OSC 133 in-command state", () => {
 
     handlers.get(7)?.("file:///C:/Users/me/project");
     expect(onCwd).toHaveBeenCalledWith("C:/Users/me/project");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OSC 52 clipboard handler
+// ---------------------------------------------------------------------------
+
+describe("OSC 52 clipboard handler", () => {
+  const writeTextMock = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined);
+
+  beforeEach(() => {
+    writeTextMock.mockClear();
+    // Node/vitest doesn't provide navigator.clipboard — polyfill it.
+    if (!navigator.clipboard) {
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText: writeTextMock },
+        writable: true,
+        configurable: true,
+      });
+    } else {
+      navigator.clipboard.writeText = writeTextMock;
+    }
+  });
+
+  it("writes decoded base64 text to the clipboard", () => {
+    const { term, handlers } = makeFakeTerm();
+    registerClipboardHandler(term);
+
+    // "hello" → base64 "aGVsbG8="
+    handlers.get(52)?.("c;aGVsbG8=");
+
+    expect(writeTextMock).toHaveBeenCalledWith("hello");
+  });
+
+  it("ignores read queries (Pd === '?')", () => {
+    const { term, handlers } = makeFakeTerm();
+    registerClipboardHandler(term);
+
+    handlers.get(52)?.("c;?");
+
+    expect(writeTextMock).not.toHaveBeenCalled();
+  });
+
+  it("ignores empty Pd", () => {
+    const { term, handlers } = makeFakeTerm();
+    registerClipboardHandler(term);
+
+    handlers.get(52)?.("c;");
+
+    expect(writeTextMock).not.toHaveBeenCalled();
+  });
+
+  it("drops payloads exceeding 100 KiB", () => {
+    const { term, handlers } = makeFakeTerm();
+    registerClipboardHandler(term);
+
+    // Create a base64 string that decodes to > 100 KiB.
+    const big = btoa("x".repeat(100 * 1024 + 1));
+    handlers.get(52)?.(`c;${big}`);
+
+    expect(writeTextMock).not.toHaveBeenCalled();
+  });
+
+  it("handles invalid base64 gracefully", () => {
+    const { term, handlers } = makeFakeTerm();
+    registerClipboardHandler(term);
+
+    // "!!!" is not valid base64.
+    handlers.get(52)?.("c;!!!");
+
+    expect(writeTextMock).not.toHaveBeenCalled();
+  });
+
+  it("drops data without a semicolon separator", () => {
+    const { term, handlers } = makeFakeTerm();
+    registerClipboardHandler(term);
+
+    handlers.get(52)?.("aGVsbG8=");
+
+    expect(writeTextMock).not.toHaveBeenCalled();
+  });
+
+  it("correctly decodes multi-byte UTF-8 (CJK characters)", () => {
+    const { term, handlers } = makeFakeTerm();
+    registerClipboardHandler(term);
+
+    // Encode "你好" as UTF-8 bytes then base64.
+    const encoded = btoa(
+      String.fromCharCode(
+        ...new TextEncoder().encode("你好"),
+      ),
+    );
+    handlers.get(52)?.(`c;${encoded}`);
+
+    expect(writeTextMock).toHaveBeenCalledWith("你好");
+  });
+
+  it("disposes cleanly", () => {
+    const { term, handlers } = makeFakeTerm();
+    const dispose = registerClipboardHandler(term);
+
+    dispose();
+
+    // Handler should be removed from the map.
+    expect(handlers.has(52)).toBe(false);
   });
 });

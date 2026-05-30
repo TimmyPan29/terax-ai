@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { DormantRing } from "./dormantRing";
 import {
   createShellIntegrationState,
+  registerClipboardHandler,
   registerCwdHandler,
   registerPromptTracker,
 } from "./osc-handlers";
@@ -267,7 +268,8 @@ function bindLeafToSlot(leafId: number, s: Session): void {
         },
         shellState,
       );
-      return [prompt.dispose, cwd];
+      const osc52 = registerClipboardHandler(term);
+      return [prompt.dispose, cwd, osc52];
     },
     onSearchReady: (addon) => s.callbacks.onSearchReady?.(addon),
   });
