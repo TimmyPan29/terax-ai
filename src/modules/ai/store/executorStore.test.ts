@@ -242,4 +242,18 @@ describe("executorStore — persistence & crash recovery (Phase 2.1)", () => {
     await flushPersistence();
     expect(disk()).toHaveLength(0);
   });
+
+  it("does not surface the currently-active run as a review on load", async () => {
+    const s = useExecutorStore.getState();
+    const id = s.beginRun("running");
+    s.snapshot("/a.ts", "x", false);
+
+    // Mini window reopened mid-run: loadPersistedRuns fires while the run is
+    // still active. It must NOT pull the live run into pendingReviews.
+    await useExecutorStore.getState().loadPersistedRuns();
+
+    const st = useExecutorStore.getState();
+    expect(st.active?.id).toBe(id);
+    expect(st.pendingReviews.find((r) => r.id === id)).toBeUndefined();
+  });
 });

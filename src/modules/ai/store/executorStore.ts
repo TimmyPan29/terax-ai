@@ -329,12 +329,21 @@ export const useExecutorStore = create<ExecutorState>((set, get) => ({
         return (await store.get<ExecutorRun[]>(EXECUTOR_STORE_KEY)) || [];
       });
       if (runs.length === 0) return;
+      // Skip the run that is active RIGHT NOW in this session: it is persisted
+      // incrementally while running, but it is owned by the live in-memory
+      // `active` state, not a leftover to review. (loadPersistedRuns can fire
+      // mid-run if the mini window is closed and reopened — without this guard
+      // we'd surface a still-running run as a finished review and let the user
+      // revert files the executor is actively editing.)
+      const activeId = get().active?.id;
+      const unresolved = runs.filter((r) => r.id !== activeId);
+      if (unresolved.length === 0) return;
       // Any run still on disk is unresolved — either finished-but-unreviewed,
       // or interrupted mid-flight by a crash (we persist incrementally). Both
       // are reviewable so the user can revert; force the review flags on load.
       // (An interrupted run has finishedAt === null; fall back to startedAt for
       // a stable, Date.now()-free value — the UI doesn't display it anyway.)
-      const restored: ExecutorRun[] = runs.map((r) => ({
+      const restored: ExecutorRun[] = unresolved.map((r) => ({
         ...r,
         awaitingReview: true,
         finishedAt: r.finishedAt ?? r.startedAt,
