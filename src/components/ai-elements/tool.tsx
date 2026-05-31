@@ -23,6 +23,7 @@ import {
   TerminalIcon,
   ToolsIcon,
 } from "@hugeicons/core-free-icons";
+import { getModel, isKnownModelId } from "@/modules/ai/config";
 import { useChatStore } from "@/modules/ai/store/chatStore";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
@@ -101,7 +102,9 @@ function deriveSummary(toolName: string, input: unknown): string | null {
     case "open_preview":
       return str("path") ?? str("url");
     case "run_subagent":
-      return str("agent") ?? str("task");
+      // The schema is { type, prompt, description } — `type` is stable across
+      // prompt streaming, so it's the right key for the memo comparator below.
+      return str("type");
     case "todo_write": {
       const items = Array.isArray(i.todos) ? i.todos : null;
       return items
@@ -111,6 +114,49 @@ function deriveSummary(toolName: string, input: unknown): string | null {
     default:
       return null;
   }
+}
+
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const s = ms / 1000;
+  return s < 10 ? `${s.toFixed(1)}s` : `${Math.round(s)}s`;
+}
+
+/** Pretty model name for a resolved model id; falls back to the raw id for
+ *  runtime ids we don't have a catalog entry for (e.g. local providers). */
+function modelLabel(modelId: unknown): string | null {
+  if (typeof modelId !== "string" || !modelId) return null;
+  return isKnownModelId(modelId) ? getModel(modelId).label : modelId;
+}
+
+/**
+ * Header summary for a run_subagent card. While running (no output yet) shows
+ * just the subagent type; once it returns, shows `type · model · N steps · dur`
+ * so the user can see WHICH model actually ran (after key-aware fallback) —
+ * the model is in the result but the heavy-tool body is otherwise hidden.
+ */
+function deriveSubagentSummary(input: unknown, output: unknown): string | null {
+  const inObj = (input ?? {}) as Record<string, unknown>;
+  const type = typeof inObj.type === "string" ? inObj.type : null;
+  const out =
+    output && typeof output === "object"
+      ? (output as Record<string, unknown>)
+      : null;
+  if (out && !("error" in out)) {
+    const parts: string[] = [];
+    if (type) parts.push(type);
+    const label = modelLabel(out.model);
+    if (label) parts.push(label);
+    if (typeof out.stepCount === "number")
+      parts.push(`${out.stepCount} step${out.stepCount === 1 ? "" : "s"}`);
+    if (typeof out.durationMs === "number") {
+      const dur = formatDuration(out.durationMs);
+      if (dur) parts.push(dur);
+    }
+    if (parts.length) return parts.join(" · ");
+  }
+  return type;
 }
 
 export type ToolProps = ComponentProps<typeof Collapsible> & {
@@ -147,7 +193,12 @@ const ToolImpl = ({
   const meta = TOOL_META[toolName];
   const Icon = meta?.icon ?? ToolsIcon;
   const label = meta?.label ?? toolName;
-  const summary = deriveSummary(toolName, input);
+  // run_subagent surfaces its resolved model + step/duration from the output;
+  // every other tool derives its summary from the input.
+  const summary =
+    toolName === "run_subagent"
+      ? deriveSubagentSummary(input, output)
+      : deriveSummary(toolName, input);
   const isError = state === "output-error";
   const open = defaultOpen ?? isError;
   const isHeavy = HEAVY_CONTENT_TOOLS.has(toolName);
