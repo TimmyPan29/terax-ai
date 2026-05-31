@@ -26,9 +26,30 @@ import {
   useSnippetsStore,
 } from "@/modules/ai/store/snippetsStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { setCustomInstructions } from "@/modules/settings/store";
+import {
+  onKeysChanged,
+  setCustomInstructions,
+  setSubagentModelOverrides,
+} from "@/modules/settings/store";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { SUBAGENTS, type SubagentType } from "@/modules/ai/agents/registry";
+import {
+  getModel,
+  MODELS,
+  PROVIDERS,
+  providerNeedsKey,
+  type ModelId,
+  type ProviderId,
+} from "@/modules/ai/config";
+import { getAllKeys, type ProviderKeys } from "@/modules/ai/lib/keyring";
 import {
   Add01Icon,
+  ArrowDown01Icon,
   CheckmarkCircle02Icon,
   Delete02Icon,
   Edit02Icon,
@@ -36,6 +57,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState } from "react";
+import { ProviderIcon } from "../components/ProviderIcon";
 import { SectionHeader } from "../components/SectionHeader";
 
 const ICON_OPTIONS: AgentIconId[] = [
@@ -113,6 +135,8 @@ export function AgentsSection() {
           ))}
         </div>
       </section>
+
+      <SubagentModelsBlock />
 
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
@@ -555,6 +579,174 @@ function CustomInstructionsBlock({ value }: { value: string }) {
         className="min-h-[100px] resize-y bg-card/60 font-sans text-[12px] leading-relaxed border border-border"
       />
     </div>
+  );
+}
+
+function SubagentModelsBlock() {
+  const overrides = usePreferencesStore((s) => s.subagentModelOverrides);
+  const [keys, setKeys] = useState<ProviderKeys | null>(null);
+
+  useEffect(() => {
+    void getAllKeys().then(setKeys);
+    let unsub: (() => void) | undefined;
+    void onKeysChanged(() => {
+      void getAllKeys().then(setKeys);
+    }).then((u) => {
+      unsub = u;
+    });
+    return () => unsub?.();
+  }, []);
+
+  // A provider is usable iff it needs no key or the user has one — mirrors the
+  // fallback rule in runSubagent.resolveModelId, so the picker only offers
+  // models that will actually run (anything else silently falls back).
+  const providerUsable = (id: ProviderId): boolean =>
+    !providerNeedsKey(id) || !!keys?.[id];
+
+  const pick = (type: SubagentType, modelId: ModelId | null) => {
+    const next = { ...overrides };
+    if (modelId) next[type] = modelId;
+    else delete next[type];
+    void setSubagentModelOverrides(next);
+  };
+
+  return (
+    <section className="flex flex-col gap-2">
+      <div className="flex flex-col">
+        <Label>Subagent models</Label>
+        <span className="text-[10.5px] text-muted-foreground">
+          Which model runs each subagent the AI dispatches via{" "}
+          <code className="rounded bg-muted/50 px-1 font-mono">
+            run_subagent
+          </code>
+          . Leave on Default to use the built-in choice; an unconfigured
+          provider falls back to your chat model.
+        </span>
+      </div>
+      <ul className="flex flex-col gap-1.5">
+        {Object.values(SUBAGENTS).map((def) => (
+          <li
+            key={def.id}
+            className="flex items-center gap-3 rounded-lg border border-border/60 bg-card/60 px-3 py-2"
+          >
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-[12px] font-medium">
+                {def.label}
+              </span>
+              <span className="line-clamp-1 text-[10.5px] text-muted-foreground">
+                {def.description}
+              </span>
+            </div>
+            <SubagentModelPicker
+              defaultModelId={def.model}
+              override={overrides[def.id]}
+              providerUsable={providerUsable}
+              onPick={(modelId) => pick(def.id, modelId)}
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function SubagentModelPicker({
+  defaultModelId,
+  override,
+  providerUsable,
+  onPick,
+}: {
+  /** The subagent type's built-in model (undefined = inherits chat model). */
+  defaultModelId: ModelId | undefined;
+  /** User-chosen model for this type, if any. */
+  override: ModelId | undefined;
+  providerUsable: (id: ProviderId) => boolean;
+  onPick: (modelId: ModelId | null) => void;
+}) {
+  const effectiveId = override ?? defaultModelId;
+  const effective = effectiveId ? getModel(effectiveId) : null;
+  const defaultLabel = defaultModelId
+    ? getModel(defaultModelId).label
+    : "chat model";
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          className="h-8 w-52 shrink-0 justify-between gap-2 px-2.5 text-[11.5px]"
+        >
+          <span className="flex min-w-0 items-center gap-2 truncate">
+            {effective ? (
+              <ProviderIcon provider={effective.provider} size={13} />
+            ) : null}
+            <span className="truncate">
+              {effective ? effective.label : "Inherit chat model"}
+            </span>
+            {!override ? (
+              <span className="shrink-0 text-muted-foreground">· default</span>
+            ) : null}
+          </span>
+          <HugeiconsIcon
+            icon={ArrowDown01Icon}
+            size={11}
+            strokeWidth={2}
+            className="opacity-70"
+          />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        side="bottom"
+        sideOffset={6}
+        collisionPadding={12}
+        className="min-w-70 p-1"
+      >
+        <DropdownMenuItem
+          onSelect={() => onPick(null)}
+          className={cn("flex items-start gap-2 text-[12px]", !override && "bg-accent/50")}
+        >
+          <span className="flex flex-1 flex-col">
+            <span>Default</span>
+            <span className="text-[10px] text-muted-foreground">
+              Use the built-in choice ({defaultLabel})
+            </span>
+          </span>
+        </DropdownMenuItem>
+        <div className="my-1 h-px bg-border/60" />
+        <div className="max-h-72 overflow-y-auto overscroll-contain pr-1">
+          {PROVIDERS.filter((p) => providerUsable(p.id)).map((p) => {
+            const models = MODELS.filter((x) => x.provider === p.id);
+            if (models.length === 0) return null;
+            return (
+              <div key={p.id} className="px-1 pt-1.5 first:pt-1">
+                <div className="mb-0.5 flex items-center gap-1.5 px-2 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                  <ProviderIcon provider={p.id} size={11} />
+                  <span>{p.label}</span>
+                </div>
+                {models.map((mod) => (
+                  <DropdownMenuItem
+                    key={mod.id}
+                    onSelect={() => onPick(mod.id as ModelId)}
+                    className={cn(
+                      "flex items-start gap-2 text-[12px]",
+                      mod.id === override && "bg-accent/50",
+                    )}
+                  >
+                    <span className="flex flex-1 flex-col">
+                      <span>{mod.label}</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {mod.description}
+                      </span>
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

@@ -39,6 +39,7 @@ Most types are read-only and auto-execute. The 'executor' type writes files and 
             prompt,
             keys: apiKeys,
             modelId: selectedModelId,
+            modelOverride: prefs.subagentModelOverrides[type],
             toolContext: ctx,
             local: {
               lmstudioBaseURL: prefs.lmstudioBaseURL,

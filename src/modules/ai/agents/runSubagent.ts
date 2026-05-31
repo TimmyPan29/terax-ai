@@ -29,6 +29,9 @@ type Args = {
   /** Caller's model — the fallback when the subagent has no bound model, or
    *  when its bound model's provider has no configured key. */
   modelId: ModelId;
+  /** User-configured model for this subagent type (Settings → Agents). When
+   *  set, it takes precedence over the type's built-in default. */
+  modelOverride?: ModelId;
   toolContext: ToolContext;
   /** Local/gateway provider config (base URLs + runtime model ids). Needed so
    *  a subagent can run on lmstudio/mlx/ollama/openrouter/openai-compatible
@@ -66,6 +69,7 @@ export async function runSubagent({
   prompt,
   keys,
   modelId,
+  modelOverride,
   toolContext,
   local,
   onStep,
@@ -86,7 +90,13 @@ export async function runSubagent({
     if (t in available) tools[t] = available[t];
   }
 
-  const resolvedModelId = resolveModelId(def.model, modelId, keys);
+  // User override (Settings) beats the type's built-in default; both still go
+  // through key-aware resolution so a missing key falls back to the caller's.
+  const resolvedModelId = resolveModelId(
+    modelOverride ?? def.model,
+    modelId,
+    keys,
+  );
   const model = await buildConfiguredLanguageModel(
     resolvedModelId,
     keys,

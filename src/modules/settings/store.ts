@@ -86,6 +86,13 @@ export type Preferences = {
   zoomLevel: number;
   agentNotifications: boolean;
   shortcuts: Record<ShortcutId, KeyBinding[]>;
+  /**
+   * Per-subagent model override, keyed by SubagentType. When set for a type,
+   * that subagent runs on this model (if its provider has a key); otherwise it
+   * uses the type's built-in default model, then falls back to the caller's
+   * model. Empty by default — zero behavior change until configured.
+   */
+  subagentModelOverrides: Record<string, ModelId>;
 };
 
 const STORE_PATH = "terax-settings.json";
@@ -128,6 +135,7 @@ const KEY_LAST_WSL_DISTRO = "lastWslDistro";
 const KEY_ZOOM_LEVEL = "zoomLevel";
 const KEY_AGENT_NOTIFICATIONS = "agentNotifications";
 const KEY_SHORTCUTS = "shortcuts";
+const KEY_SUBAGENT_MODEL_OVERRIDES = "subagentModelOverrides";
 
 export const TERMINAL_FONT_SIZE_DEFAULT = 14;
 export const TERMINAL_FONT_SIZE_MIN = 8;
@@ -183,6 +191,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   zoomLevel: 1.0,
   agentNotifications: true,
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
+  subagentModelOverrides: {},
 };
 
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
@@ -308,6 +317,16 @@ export async function loadPreferences(): Promise<Preferences> {
     shortcuts:
       get<Record<ShortcutId, KeyBinding[]>>(KEY_SHORTCUTS) ??
       DEFAULT_PREFERENCES.shortcuts,
+    subagentModelOverrides: ((): Record<string, ModelId> => {
+      const raw =
+        get<Record<string, string>>(KEY_SUBAGENT_MODEL_OVERRIDES) ?? {};
+      const out: Record<string, ModelId> = {};
+      // Drop any value that is no longer a known model id (e.g. a model that
+      // was removed between versions) so we never hand a bogus id downstream.
+      for (const [type, modelId] of Object.entries(raw))
+        if (isKnownModelId(modelId)) out[type] = modelId;
+      return out;
+    })(),
   };
 }
 
@@ -506,6 +525,12 @@ export async function resetShortcuts(): Promise<void> {
   await writePref(KEY_SHORTCUTS, DEFAULT_PREFERENCES.shortcuts);
 }
 
+export async function setSubagentModelOverrides(
+  value: Record<string, ModelId>,
+): Promise<void> {
+  await writePref(KEY_SUBAGENT_MODEL_OVERRIDES, value);
+}
+
 export type PrefKey = keyof Preferences;
 
 /** Subscribe to changes from any window (settings → main). */
@@ -551,6 +576,7 @@ export async function onPreferencesChange(
     [KEY_ZOOM_LEVEL]: "zoomLevel",
     [KEY_AGENT_NOTIFICATIONS]: "agentNotifications",
     [KEY_SHORTCUTS]: "shortcuts",
+    [KEY_SUBAGENT_MODEL_OVERRIDES]: "subagentModelOverrides",
   };
   // Same-process writes still fire onChange immediately; cross-window writes
   // arrive via the Tauri event emitted by writePref().
