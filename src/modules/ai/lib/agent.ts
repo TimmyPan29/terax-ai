@@ -108,7 +108,13 @@ export async function buildLanguageModel(
     }
     case "anthropic": {
       const { createAnthropic } = await import("@ai-sdk/anthropic");
-      built = createAnthropic({ apiKey: key })(resolvedModelId);
+      // We run inside a Tauri webview (a browser origin). Anthropic blocks
+      // cross-origin browser requests unless this header opts in, otherwise the
+      // fetch fails CORS and WKWebView surfaces it only as "Load failed".
+      built = createAnthropic({
+        apiKey: key,
+        headers: { "anthropic-dangerous-direct-browser-access": "true" },
+      })(resolvedModelId);
       break;
     }
     case "google": {

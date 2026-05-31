@@ -35,6 +35,7 @@ import { useAgentsStore } from "../store/agentsStore";
 import { getOrCreateChat, useChatStore } from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { usePlanStore } from "../store/planStore";
+import { useExecutorStore } from "../store/executorStore";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { AiChatView } from "./AiChat";
 import { ExecutorReview } from "./ExecutorReview";
@@ -83,6 +84,10 @@ export function AiMiniWindow() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [closeMini]);
+
+  useEffect(() => {
+    useExecutorStore.getState().loadPersistedRuns();
+  }, []);
 
   return (
     <motion.div
