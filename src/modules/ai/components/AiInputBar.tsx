@@ -18,7 +18,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getModel, getThinkingMode } from "../config";
 import { useComposer, type FileAttachment } from "../lib/composer";
 import { useWorkspaceFiles } from "../hooks/useWorkspaceFiles";
@@ -83,6 +83,7 @@ export function AiInputBar() {
   const snippets = useSnippetsStore((s) => s.snippets);
   const workspaceRoot = useChatStore((s) => s.live.getWorkspaceRoot());
 
+  const lastCompositionEnd = useRef(0);
   const [trigger, setTrigger] = useState<SnippetTrigger | null>(null);
   const [fileTrigger, setFileTrigger] = useState<FileTrigger | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -269,7 +270,15 @@ export function AiInputBar() {
                     void c.addFiles(images);
                   }
                 }}
+                onCompositionEnd={() => {
+                  lastCompositionEnd.current = Date.now();
+                }}
                 onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.nativeEvent.isComposing || Date.now() - lastCompositionEnd.current < 50)) {
+                    e.stopPropagation();
+                    return;
+                  }
+
                   if (pickerOpen) {
                     const items = fileTrigger ? filteredFiles : filteredItems;
                     if (e.key === "ArrowDown") {
