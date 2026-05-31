@@ -96,35 +96,58 @@ async function getStore(): Promise<LazyStore> {
   return persistedStore;
 }
 
-async function persistRun(run: ExecutorRun): Promise<void> {
-  try {
-    const store = await getStore();
-    const runs = (await store.get<ExecutorRun[]>(EXECUTOR_STORE_KEY)) || [];
-    const idx = runs.findIndex((r) => r.id === run.id);
-    if (idx >= 0) {
-      runs[idx] = run;
-    } else {
-      runs.unshift(run);
-    }
-    await store.set(EXECUTOR_STORE_KEY, runs);
-    await store.save();
-  } catch (e) {
-    console.error("[executorStore] Failed to persist run:", e);
-  }
+/**
+ * Serialize every read-modify-write against the persisted store. persistRun /
+ * removePersisted each do get -> mutate -> set, and several callers fire them
+ * without awaiting (endRun, keepAll, keepOne, plus per-snapshot persists). Run
+ * concurrently they would lose updates — e.g. a fire-and-forget persist landing
+ * AFTER a keep's remove would resurrect an already-resolved run on next launch.
+ * The chain keeps going regardless of any single task's outcome (tasks swallow
+ * their own errors), so one failure never wedges the queue.
+ */
+let writeChain: Promise<unknown> = Promise.resolve();
+function enqueueWrite<T>(task: () => Promise<T>): Promise<T> {
+  const result = writeChain.then(task, task);
+  writeChain = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result as Promise<T>;
 }
 
-async function removePersisted(runId: string): Promise<void> {
-  try {
-    const store = await getStore();
-    const runs = (await store.get<ExecutorRun[]>(EXECUTOR_STORE_KEY)) || [];
-    const filtered = runs.filter((r) => r.id !== runId);
-    if (filtered.length !== runs.length) {
-      await store.set(EXECUTOR_STORE_KEY, filtered);
+function persistRun(run: ExecutorRun): Promise<void> {
+  return enqueueWrite(async () => {
+    try {
+      const store = await getStore();
+      const runs = (await store.get<ExecutorRun[]>(EXECUTOR_STORE_KEY)) || [];
+      const idx = runs.findIndex((r) => r.id === run.id);
+      if (idx >= 0) {
+        runs[idx] = run;
+      } else {
+        runs.unshift(run);
+      }
+      await store.set(EXECUTOR_STORE_KEY, runs);
       await store.save();
+    } catch (e) {
+      console.error("[executorStore] Failed to persist run:", e);
     }
-  } catch (e) {
-    console.error("[executorStore] Failed to remove persisted run:", e);
-  }
+  });
+}
+
+function removePersisted(runId: string): Promise<void> {
+  return enqueueWrite(async () => {
+    try {
+      const store = await getStore();
+      const runs = (await store.get<ExecutorRun[]>(EXECUTOR_STORE_KEY)) || [];
+      const filtered = runs.filter((r) => r.id !== runId);
+      if (filtered.length !== runs.length) {
+        await store.set(EXECUTOR_STORE_KEY, filtered);
+        await store.save();
+      }
+    } catch (e) {
+      console.error("[executorStore] Failed to remove persisted run:", e);
+    }
+  });
 }
 
 let runSeq = 1;
@@ -147,23 +170,11 @@ async function applyRevert(snap: FileSnapshot): Promise<RevertResult> {
 }
 
 
-export const useExecutorStore = create<ExecutorState>((set, get) => {
-  // Load persisted runs immediately when store is created
-  getStore()
-    .then(async (store) => {
-      const runs = (await store.get<ExecutorRun[]>(EXECUTOR_STORE_KEY)) || [];
-      const awaiting = runs.filter((r) => r.awaitingReview);
-      if (awaiting.length > 0) {
-        set({ pendingReviews: awaiting });
-      }
-    })
-    .catch((e) => console.error("[executorStore] Failed to load on init:", e));
+export const useExecutorStore = create<ExecutorState>((set, get) => ({
+  active: null,
+  pendingReviews: [],
 
-  return {
-    active: null,
-    pendingReviews: [],
-
-    beginRun: (label) => {
+  beginRun: (label) => {
     const id = newRunId();
     set({
       active: {
@@ -183,23 +194,32 @@ export const useExecutorStore = create<ExecutorState>((set, get) => {
     const active = get().active;
     if (!active) return;
     if (active.snapshots[path]) return; // first touch only
-    set({
-      active: {
-        ...active,
-        snapshots: {
-          ...active.snapshots,
-          [path]: { path, before, wasNew },
-        },
+    const updated: ExecutorRun = {
+      ...active,
+      snapshots: {
+        ...active.snapshots,
+        [path]: { path, before, wasNew },
       },
-    });
+    };
+    set({ active: updated });
+    // Persist the in-flight run NOW so a crash mid-run is still revertable:
+    // the file is already on disk, and this is the only copy of its "before".
+    persistRun(updated).catch((e) =>
+      console.error("[executorStore] snapshot persist failed:", e),
+    );
   },
 
   recordCommand: (cmd) => {
     const active = get().active;
     if (!active) return;
-    set({
-      active: { ...active, commands: [...active.commands, cmd] },
-    });
+    const updated: ExecutorRun = {
+      ...active,
+      commands: [...active.commands, cmd],
+    };
+    set({ active: updated });
+    persistRun(updated).catch((e) =>
+      console.error("[executorStore] recordCommand persist failed:", e),
+    );
   },
 
   endRun: (id) => {
@@ -302,20 +322,31 @@ export const useExecutorStore = create<ExecutorState>((set, get) => {
 
   loadPersistedRuns: async () => {
     try {
-      const store = await getStore();
-      const runs = (await store.get<ExecutorRun[]>(EXECUTOR_STORE_KEY)) || [];
-      const awaiting = runs.filter((r) => r.awaitingReview);
-      if (awaiting.length > 0) {
-        const existing = get().pendingReviews;
-        // Dedup: merge persisted into current, preferring persisted (fresher).
-        const merged = awaiting.concat(
-          existing.filter((r) => !awaiting.find((p) => p.id === r.id)),
-        );
-        set({ pendingReviews: merged });
-      }
+      // Read through the write queue so we observe the final persisted state,
+      // not a snapshot taken mid-write.
+      const runs = await enqueueWrite(async () => {
+        const store = await getStore();
+        return (await store.get<ExecutorRun[]>(EXECUTOR_STORE_KEY)) || [];
+      });
+      if (runs.length === 0) return;
+      // Any run still on disk is unresolved — either finished-but-unreviewed,
+      // or interrupted mid-flight by a crash (we persist incrementally). Both
+      // are reviewable so the user can revert; force the review flags on load.
+      // (An interrupted run has finishedAt === null; fall back to startedAt for
+      // a stable, Date.now()-free value — the UI doesn't display it anyway.)
+      const restored: ExecutorRun[] = runs.map((r) => ({
+        ...r,
+        awaitingReview: true,
+        finishedAt: r.finishedAt ?? r.startedAt,
+      }));
+      const existing = get().pendingReviews;
+      // Dedup: merge persisted into current, preferring persisted (fresher).
+      const merged = restored.concat(
+        existing.filter((e) => !restored.find((p) => p.id === e.id)),
+      );
+      set({ pendingReviews: merged });
     } catch (e) {
       console.error("[executorStore] Failed to load persisted runs:", e);
     }
   },
-  };
-});
+}));
