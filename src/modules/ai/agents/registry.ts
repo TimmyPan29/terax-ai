@@ -5,7 +5,8 @@ export type SubagentType =
   | "code-review"
   | "security"
   | "general"
-  | "architect";
+  | "architect"
+  | "executor";
 
 export type SubagentDef = {
   id: SubagentType;
@@ -28,9 +29,26 @@ export type SubagentDef = {
    * for all built-ins by default: zero behavior change until configured.
    */
   model?: ModelId;
+  /**
+   * When true, this subagent gets the executor toolset (write/edit/bash that
+   * apply immediately, snapshotted for after-the-fact review) instead of the
+   * read-only set. Only the `executor` agent sets this. See executorTools.ts.
+   */
+  writable?: boolean;
 };
 
 const READ_ONLY_TOOLS = ["read_file", "list_directory", "grep", "glob"];
+const EXECUTOR_TOOLS = [
+  "read_file",
+  "list_directory",
+  "grep",
+  "glob",
+  "write_file",
+  "edit",
+  "multi_edit",
+  "create_directory",
+  "bash_run",
+];
 
 export const SUBAGENTS: Record<SubagentType, SubagentDef> = {
   explore: {
@@ -82,5 +100,23 @@ export const SUBAGENTS: Record<SubagentType, SubagentDef> = {
     // Design judgment: strongest reasoning tier.
     model: "gpt-5.5",
     systemPrompt: `You are an architecture-advisor subagent. Read the relevant code, then answer the spawn question with a concrete design recommendation: where new logic should live, module/boundary impact, tradeoffs of the main options, and risks. Do NOT write or edit code — your output is advice the main agent will act on. Be specific (file paths, function names) and decisive: recommend one option and say why. Keep it tight.`,
+  },
+  executor: {
+    id: "executor",
+    label: "Executor",
+    description:
+      "Writes code and runs tests autonomously. Use to implement a self-contained, well-specified change end to end (edit files, run the test/lint command, iterate). File changes apply immediately and are presented to the user for review/revert afterward; shell commands run without prompting. Give it an exact spec and the verify command.",
+    tools: EXECUTOR_TOOLS,
+    writable: true,
+    // Code + tests: strongest coding model.
+    model: "claude-opus-4-8",
+    systemPrompt: `You are an execution subagent: a hands-on engineer. Implement the requested change end to end.
+- Read before you edit (read_file is required before edit/multi_edit on a path).
+- Make the change with edit/multi_edit/write_file. Changes apply to disk immediately.
+- Verify: run the project's test/lint/build command via bash_run and fix what you broke. If the spawn prompt names a verify command, use it; otherwise infer it from the project (package.json scripts, etc.).
+- Iterate until the change is correct and verification passes, or until you are blocked.
+- Match the surrounding code style. Do not add unrequested changes, comments, or cleanups.
+- Your changes are reviewed by the user afterward (snapshot diff + revert), so be precise; do not rely on an approval prompt.
+Return a tight summary: what you changed (file paths), what you ran, and the verification result. State clearly if anything failed or is incomplete.`,
   },
 };

@@ -13,9 +13,14 @@ import type { ProviderKeys } from "../lib/keyring";
 import type { ToolContext } from "../tools/context";
 import { buildFsTools } from "../tools/fs";
 import { buildSearchTools } from "../tools/search";
+import { buildExecutorTools } from "../tools/executorTools";
+import { useExecutorStore } from "../store/executorStore";
 import { SUBAGENTS, type SubagentType } from "./registry";
 
 const SUBAGENT_MAX_STEPS = 12;
+// The executor writes + tests + iterates, so it needs more headroom than a
+// read-only investigator.
+const EXECUTOR_MAX_STEPS = 40;
 
 type Args = {
   type: SubagentType;
@@ -38,6 +43,9 @@ type RunResult = {
   durationMs: number;
   /** The model the subagent actually ran on (after key-aware resolution). */
   modelId: ModelId;
+  /** Files the executor touched this run (canonical paths). Empty for
+   *  read-only subagents. The caller surfaces these for review. */
+  filesTouched: string[];
 };
 
 /** Bound model wins only when its provider has a usable key; otherwise fall
@@ -65,13 +73,17 @@ export async function runSubagent({
   const def = SUBAGENTS[type];
   if (!def) throw new Error(`unknown subagent type: ${type}`);
 
-  const readOnly: Record<string, unknown> = {
-    ...buildFsTools(toolContext),
-    ...buildSearchTools(toolContext),
-  };
+  const isExecutor = def.writable === true;
+
+  // Executor gets the full read+write+shell toolset; read-only subagents get
+  // the filtered read-only set. The whitelist in def.tools still gates which
+  // tools are actually exposed (so an executor without "bash_run" can't run it).
+  const available: Record<string, unknown> = isExecutor
+    ? buildExecutorTools(toolContext)
+    : { ...buildFsTools(toolContext), ...buildSearchTools(toolContext) };
   const tools: Record<string, unknown> = {};
   for (const t of def.tools) {
-    if (t in readOnly) tools[t] = readOnly[t];
+    if (t in available) tools[t] = available[t];
   }
 
   const resolvedModelId = resolveModelId(def.model, modelId, keys);
@@ -81,26 +93,43 @@ export async function runSubagent({
     local ?? {},
   );
 
-  const start = Date.now();
-  const result = await generateText({
-    model,
-    system: def.systemPrompt,
-    prompt,
-    tools: tools as Parameters<typeof generateText>[0]["tools"],
-    stopWhen: stepCountIs(SUBAGENT_MAX_STEPS),
-    onStepFinish: (step) => {
-      if (!onStep) return;
-      const last = step.toolCalls?.[step.toolCalls.length - 1];
-      if (last) onStep(`${type}: ${last.toolName}`);
-    },
-  });
+  const runId = isExecutor
+    ? useExecutorStore.getState().beginRun(def.label)
+    : null;
 
-  return {
-    summary: result.text || "(no output)",
-    stepCount: result.steps?.length ?? 0,
-    durationMs: Date.now() - start,
-    modelId: resolvedModelId,
-  };
+  const start = Date.now();
+  try {
+    const result = await generateText({
+      model,
+      system: def.systemPrompt,
+      prompt,
+      tools: tools as Parameters<typeof generateText>[0]["tools"],
+      stopWhen: stepCountIs(
+        isExecutor ? EXECUTOR_MAX_STEPS : SUBAGENT_MAX_STEPS,
+      ),
+      onStepFinish: (step) => {
+        if (!onStep) return;
+        const last = step.toolCalls?.[step.toolCalls.length - 1];
+        if (last) onStep(`${type}: ${last.toolName}`);
+      },
+    });
+
+    const finished = runId
+      ? useExecutorStore.getState().endRun(runId)
+      : null;
+
+    return {
+      summary: result.text || "(no output)",
+      stepCount: result.steps?.length ?? 0,
+      durationMs: Date.now() - start,
+      modelId: resolvedModelId,
+      filesTouched: finished ? Object.keys(finished.snapshots) : [],
+    };
+  } catch (e) {
+    // Surface whatever the executor already changed for review even on failure.
+    if (runId) useExecutorStore.getState().endRun(runId);
+    throw e;
+  }
 }
 
 export const DEFAULT_SUBAGENT_MODEL: ModelId = DEFAULT_MODEL_ID;

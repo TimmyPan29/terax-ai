@@ -37,6 +37,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { usePlanStore } from "../store/planStore";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { AiChatView } from "./AiChat";
+import { ExecutorReview } from "./ExecutorReview";
 import { PlanDiffReview } from "./PlanDiffReview";
 import { TodoStrip } from "./TodoStrip";
 
@@ -112,6 +113,7 @@ export function AiMiniWindow() {
         <EmptyShell onClose={closeMini} onExpand={expandToPanel} />
       )}
       <PlanDiffReview />
+      <ExecutorReview />
     </motion.div>
   );
 }

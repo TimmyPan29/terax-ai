@@ -11,12 +11,12 @@ const TYPE_KEYS = Object.keys(SUBAGENTS) as [SubagentType, ...SubagentType[]];
 export function buildSubagentTools(ctx: ToolContext) {
   return {
     run_subagent: tool({
-      description: `Spawn an isolated subagent with its own restricted toolset and a fresh message history. Use when you need to delegate a self-contained read-only investigation (large search, code review, security audit) without polluting your own context. The subagent returns a single text summary; pick a 'type' that matches its job.
+      description: `Spawn an isolated subagent with its own restricted toolset and a fresh message history. Delegate a self-contained job (large search, code review, security audit, architecture advice, or an end-to-end code change) without polluting your own context. The subagent returns a single text summary; pick a 'type' that matches its job.
 
 Types:
 ${TYPE_KEYS.map((k) => `- ${k}: ${SUBAGENTS[k].description}`).join("\n")}
 
-Auto-executes (no approval) — subagents are read-only by design.`,
+Most types are read-only and auto-execute. The 'executor' type writes files and runs commands directly; its file changes are snapshotted and surfaced to the user for review/revert after it finishes.`,
       inputSchema: z.object({
         type: z.enum(TYPE_KEYS),
         prompt: z
@@ -30,7 +30,7 @@ Auto-executes (no approval) — subagents are read-only by design.`,
           .describe("Short label shown in the chat UI for the spawn card."),
       }),
       execute: async ({ type, prompt, description }) => {
-        const { apiKeys, selectedModelId, patchAgentMeta } =
+        const { apiKeys, selectedModelId, patchAgentMeta, openMini } =
           useChatStore.getState();
         const prefs = usePreferencesStore.getState();
         try {
@@ -53,6 +53,9 @@ Auto-executes (no approval) — subagents are read-only by design.`,
             },
             onStep: (label) => patchAgentMeta({ step: label }),
           });
+          // Surface the executor's review (snapshot diff) by opening the mini
+          // window when it touched files.
+          if (r.filesTouched.length > 0) openMini();
           return {
             type,
             description,
@@ -60,6 +63,9 @@ Auto-executes (no approval) — subagents are read-only by design.`,
             summary: r.summary,
             stepCount: r.stepCount,
             durationMs: r.durationMs,
+            ...(r.filesTouched.length > 0
+              ? { filesTouched: r.filesTouched }
+              : {}),
           };
         } catch (e) {
           return { error: String(e), type };
