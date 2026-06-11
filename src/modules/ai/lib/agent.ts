@@ -106,6 +106,80 @@ export async function buildLanguageModel(
         "OpenAI Account uses Codex app-server and cannot be built as a language model.",
       );
     }
+    case "copilot-account": {
+      const { createOpenAICompatible } =
+        await import("@ai-sdk/openai-compatible");
+      const { getCopilotSessionToken } =
+        await import("./copilotAuth");
+      
+      const upstreamModel = resolvedModelId.replace("copilot-account-", "");
+      const isGemini = upstreamModel.startsWith("gemini");
+      
+      // For Gemini models we need a proper ghu_-based session token
+      // because the gh-cli gho_ token's integrator (copilot-4-cli)
+      // does not have Gemini in its allow-list.
+      let sessionToken: string | null = null;
+      if (isGemini) {
+        sessionToken = await getCopilotSessionToken();
+      }
+
+      const copilotProxyFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init) {
+          const newHeaders: Record<string, string> = {};
+          if (init.headers instanceof Headers) {
+            init.headers.forEach((v, k) => { newHeaders[k] = v; });
+          } else if (Array.isArray(init.headers)) {
+            for (const [k, v] of init.headers) newHeaders[k] = v;
+          } else if (init.headers) {
+            Object.assign(newHeaders, init.headers);
+          }
+          if (isGemini) {
+            // Use session token directly — bypass Rust-side gh auth
+            newHeaders["copilot-integration-id"] = "vscode-chat";
+            delete newHeaders["x-terax-auth"];
+            if (sessionToken) {
+              newHeaders["authorization"] = `Bearer ${sessionToken}`;
+            }
+          } else {
+            // Non-Gemini: keep using x-terax-auth for Rust-side gh auth
+            newHeaders["copilot-integration-id"] = "copilot-chat";
+          }
+          newHeaders["editor-version"] = "vscode/1.115.0";
+          newHeaders["editor-plugin-version"] = "copilot-chat/0.30.0";
+          init.headers = newHeaders;
+        }
+        if (init?.body && typeof init.body === "string") {
+          try {
+            const parsed = JSON.parse(init.body);
+            if (getModel(resolvedModelId as ModelId).tags?.includes("reasoning")) {
+              if (!upstreamModel.startsWith("gpt-5")) {
+                parsed.reasoning_effort = "high";
+              }
+            }
+            return localProxyFetch(input, { ...init, body: JSON.stringify(parsed) });
+          } catch (e) {
+            // ignore
+          }
+        }
+        return localProxyFetch(input, init);
+      };
+
+      let finalModel = upstreamModel === "copilot" ? "gpt-5.4-mini" : upstreamModel;
+      if (finalModel === "gpt-5.4-mini") {
+        finalModel = "gpt-5-mini";
+      }
+      
+      built = createOpenAICompatible({
+        name: "copilot-account",
+        baseURL: "https://api.githubcopilot.com",
+        apiKey: "dummy",
+        headers: isGemini
+          ? { "editor-version": "vscode/1.115.0", "editor-plugin-version": "copilot-chat/0.30.0", "Copilot-Integration-Id": "vscode-chat" }
+          : { "x-terax-auth": "copilot", "editor-version": "vscode/1.115.0", "editor-plugin-version": "copilot-chat/0.30.0", "Copilot-Integration-Id": "copilot-chat" },
+        fetch: copilotProxyFetch,
+      })(finalModel);
+      break;
+    }
     case "openai": {
       const { createOpenAI } = await import("@ai-sdk/openai");
       built = createOpenAI({ apiKey: key })(resolvedModelId);
@@ -125,6 +199,19 @@ export async function buildLanguageModel(
     case "google": {
       const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
       built = createGoogleGenerativeAI({ apiKey: key })(resolvedModelId);
+      break;
+    }
+    case "google-account": {
+      const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
+      
+      const upstreamModel = resolvedModelId === "google-account-gemini-2.5-pro" ? "gemini-2.5-pro" : resolvedModelId;
+      
+      built = createGoogleGenerativeAI({ 
+        baseURL: "https://us-central1-aiplatform.googleapis.com/v1/projects/dummy-gcp-project-id/locations/us-central1/publishers/google",
+        apiKey: "dummy",
+        headers: { "x-terax-auth": "google" },
+        fetch: localProxyFetch,
+      })(upstreamModel);
       break;
     }
     case "xai": {
@@ -358,6 +445,7 @@ function buildThinkingProviderOptions(
       return {
         google: { thinkingConfig: { thinkingBudget: -1, includeThoughts: true } },
       };
+    case "copilot-account":
     case "openai":
       return { openai: { reasoningEffort: "high" } };
     case "deepseek":

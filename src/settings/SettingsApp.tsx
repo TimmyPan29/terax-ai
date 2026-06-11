@@ -1,4 +1,5 @@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Toaster } from "@/components/ui/sonner";
 import { WindowControls } from "@/components/WindowControls";
 import { IS_MAC, USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import type { SettingsTab } from "@/modules/settings/openSettingsWindow";
@@ -113,6 +114,7 @@ export function SettingsApp() {
           {ActiveSection && <ActiveSection />}
         </div>
       </main>
+      <Toaster />
     </div>
   );
 }

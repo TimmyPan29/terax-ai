@@ -6,6 +6,7 @@ import {
   ComputerIcon,
   FlashIcon,
   GoogleGeminiIcon,
+  GithubIcon,
   Grok02Icon,
   CpuIcon,
   DeepseekIcon,
@@ -19,8 +20,10 @@ import { HugeiconsIcon } from "@hugeicons/react";
 const ICON_BY_PROVIDER = {
   openai: ChatGptIcon,
   "openai-account": ChatGptIcon,
+  "copilot-account": GithubIcon,
   anthropic: ClaudeIcon,
   google: GoogleGeminiIcon,
+  "google-account": GoogleGeminiIcon,
   xai: Grok02Icon,
   cerebras: CpuIcon,
   groq: FlashIcon,

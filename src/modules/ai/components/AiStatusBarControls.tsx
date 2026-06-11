@@ -28,6 +28,7 @@ import {
   FlashIcon,
   GlobeIcon,
   GoogleGeminiIcon,
+  GithubIcon,
   Grok02Icon,
   MistralIcon,
   Message01Icon,
@@ -62,8 +63,10 @@ import { useCodexStore } from "@/modules/ai/codex/store";
 const PROVIDER_ICON = {
   openai: ChatGptIcon,
   "openai-account": ChatGptIcon,
+  "copilot-account": GithubIcon,
   anthropic: ClaudeIcon,
   google: GoogleGeminiIcon,
+  "google-account": GoogleGeminiIcon,
   xai: Grok02Icon,
   cerebras: CpuIcon,
   groq: FlashIcon,

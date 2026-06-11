@@ -3,8 +3,10 @@ export const KEYRING_SERVICE = "terax-ai";
 export type ProviderId =
   | "openai"
   | "openai-account"
+  | "copilot-account"
   | "anthropic"
   | "google"
+  | "google-account"
   | "xai"
   | "cerebras"
   | "groq"
@@ -42,6 +44,13 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     consoleUrl: "https://developers.openai.com/codex/app-server",
   },
   {
+    id: "copilot-account",
+    label: "Copilot Account",
+    keyringAccount: "",
+    keyPrefix: null,
+    consoleUrl: "https://github.com/settings/copilot",
+  },
+  {
     id: "anthropic",
     label: "Anthropic",
     keyringAccount: "anthropic-api-key",
@@ -55,6 +64,14 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     keyPrefix: null,
     consoleUrl: "https://aistudio.google.com/apikey",
   },
+  {
+    id: "google-account",
+    label: "Google Account",
+    keyringAccount: "",
+    keyPrefix: null,
+    consoleUrl: "https://cloud.google.com/docs/authentication/application-default-credentials",
+  },
+
   {
     id: "xai",
     label: "xAI",
@@ -164,6 +181,72 @@ export const MODELS = [
     label: "Codex Account",
     hint: "ChatGPT",
     description: "Codex models available through your ChatGPT account.",
+    capabilities: { intelligence: 5, speed: 3, cost: 5 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+  },
+  {
+    id: "copilot-account-copilot",
+    provider: "copilot-account",
+    label: "Copilot Account",
+    hint: "Copilot",
+    description: "GitHub Copilot Chat API (requires gh cli login).",
+    capabilities: { intelligence: 5, speed: 3, cost: 5 },
+    tags: ["vision", "tools", "coding"],
+  },
+  {
+    id: "copilot-account-gpt-5.4",
+    provider: "copilot-account",
+    label: "Copilot - GPT-5.4",
+    hint: "Copilot",
+    description: "GPT-5.4 via GitHub Copilot",
+    capabilities: { intelligence: 5, speed: 3, cost: 5 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+  },
+  {
+    id: "copilot-account-gpt-5.4-mini",
+    provider: "copilot-account",
+    label: "Copilot - GPT-5.4 mini",
+    hint: "Copilot",
+    description: "GPT-5.4 mini via GitHub Copilot",
+    capabilities: { intelligence: 4, speed: 5, cost: 2 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+  },
+
+
+  {
+    id: "copilot-account-claude-sonnet-4.6",
+    provider: "copilot-account",
+    label: "Copilot - Claude Sonnet 4.6",
+    hint: "Copilot",
+    description: "Claude Sonnet 4.6 via GitHub Copilot",
+    capabilities: { intelligence: 5, speed: 4, cost: 4 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+  },
+
+  {
+    id: "copilot-account-gemini-3.1-pro-preview",
+    provider: "copilot-account",
+    label: "Copilot - Gemini 3.1 Pro",
+    hint: "Copilot",
+    description: "Gemini 3.1 Pro via GitHub Copilot",
+    capabilities: { intelligence: 5, speed: 3, cost: 5 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+  },
+  {
+    id: "copilot-account-gemini-3.5-flash",
+    provider: "copilot-account",
+    label: "Copilot - Gemini 3.5 Flash",
+    hint: "Copilot",
+    description: "Gemini 3.5 Flash via GitHub Copilot",
+    capabilities: { intelligence: 4, speed: 5, cost: 2 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+  },
+  {
+    id: "google-account-gemini-2.5-pro",
+    provider: "google-account",
+    label: "Google Account (Gemini 2.5 Pro)",
+    hint: "Gemini 2.5",
+    description: "Gemini models via Google ADC or Antigravity CLI.",
     capabilities: { intelligence: 5, speed: 3, cost: 5 },
     tags: ["vision", "reasoning", "tools", "coding"],
   },
@@ -558,12 +641,13 @@ const THINKING_OPTIONAL: ReadonlySet<string> = new Set([
   // OpenAI GPT-5 family — reasoningEffort
   "gpt-5.5",
   "gpt-5.4-mini",
-  "gpt-5.4-nano",
   "gpt-5.3-codex",
+  "copilot-account-gpt-5.4",
+  "copilot-account-gpt-5.4-mini",
   // Anthropic — extended thinking
-  "claude-opus-4-8",
   "claude-opus-4-7",
   "claude-sonnet-4-6",
+  "copilot-account-claude-sonnet-4.6",
   "claude-haiku-4-5",
   "claude-opus-4-6",
   // Google Gemini — thinkingConfig
@@ -573,6 +657,8 @@ const THINKING_OPTIONAL: ReadonlySet<string> = new Set([
   "gemini-3-flash-preview",
   "gemini-2.5-pro",
   "gemini-2.5-flash",
+  "copilot-account-gemini-3.1-pro-preview",
+  "copilot-account-gemini-3.5-flash",
   // DeepSeek V4 Pro — thinking toggle supported
   "deepseek-v4-pro",
   "deepseek/deepseek-v4-pro",
@@ -709,6 +795,8 @@ export function estimateCost(
 /** Providers that do not require an API key (local servers, key-optional). */
 export const KEYLESS_PROVIDERS: readonly ProviderId[] = [
   "openai-account",
+  "copilot-account",
+  "google-account",
   "lmstudio",
   "mlx",
   "ollama",
@@ -723,6 +811,8 @@ export function providerNeedsKey(id: ProviderId): boolean {
  *  Used by Settings to decide whether to render a key card at all. */
 export function providerSupportsKey(id: ProviderId): boolean {
   if (id === "openai-account") return false;
+  if (id === "copilot-account") return false;
+  if (id === "google-account") return false;
   if (providerNeedsKey(id)) return true;
   const p = getProvider(id);
   return !!p.keyOptional;

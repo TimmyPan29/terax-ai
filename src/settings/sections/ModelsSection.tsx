@@ -58,6 +58,8 @@ import { useEffect, useMemo, useState } from "react";
 import { ProviderIcon } from "../components/ProviderIcon";
 import { ProviderKeyCard } from "../components/ProviderKeyCard";
 import { SectionHeader } from "../components/SectionHeader";
+import { getCopilotSessionToken, isCopilotAuthenticated } from "@/modules/ai/lib/copilotAuth";
+import { toast } from "sonner";
 
 type KeysMap = Record<ProviderId, string | null>;
 
@@ -219,6 +221,13 @@ export function ModelsSection() {
 
   const isConfigured = (id: ProviderId): boolean => {
     if (id === "openai-account") return codexPhase === "connected";
+    if (id === "copilot-account" || id === "google-account") {
+      try {
+        return localStorage.getItem(`enabled:${id}`) === "true";
+      } catch {
+        return false;
+      }
+    }
     if (id === "openrouter")
       return !!keys?.[id] && !!openrouterModelId.trim();
     if (!isLocalProvider(id)) return !!keys?.[id];
@@ -244,6 +253,12 @@ export function ModelsSection() {
   const removeProvider = (id: ProviderId) => {
     if (id === "openai-account") {
       void logoutCodex();
+    } else if (id === "copilot-account" || id === "google-account") {
+      try {
+        localStorage.removeItem(`enabled:${id}`);
+      } catch {
+        // ignore
+      }
     } else if (id === "openrouter") {
       void setOpenrouterModelId("");
       void onClearKey(id);
@@ -265,6 +280,13 @@ export function ModelsSection() {
   };
 
   const addProvider = (id: ProviderId) => {
+    if (id === "copilot-account" || id === "google-account") {
+      try {
+        localStorage.setItem(`enabled:${id}`, "true");
+      } catch {
+        // ignore
+      }
+    }
     setAdding((prev) => new Set(prev).add(id));
   };
 
@@ -317,6 +339,12 @@ export function ModelsSection() {
                   onLogout={logoutCodex}
                   onModelChange={setCodexModelId}
                   onEffortChange={setCodexReasoningEffort}
+                  onRemove={() => removeProvider(p.id)}
+                />
+              ) : p.id === "copilot-account" || p.id === "google-account" ? (
+                <CliAccountCard
+                  key={p.id}
+                  provider={p}
                   onRemove={() => removeProvider(p.id)}
                 />
               ) : isLocalProvider(p.id) || p.id === "openrouter" ? (
@@ -548,6 +576,97 @@ function CodexAccountCard({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function CliAccountCard({
+  provider,
+  onRemove,
+}: {
+  provider: ProviderInfo;
+  onRemove: () => void;
+}) {
+  const [isCopilotAuthed, setIsCopilotAuthed] = useState(false);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+
+  useEffect(() => {
+    if (provider.id === "copilot-account") {
+      isCopilotAuthenticated().then(setIsCopilotAuthed).catch(() => setIsCopilotAuthed(false));
+    }
+  }, [provider.id]);
+
+  const handleCopilotAuth = async () => {
+    try {
+      setIsAuthenticating(true);
+      await getCopilotSessionToken();
+      setIsCopilotAuthed(true);
+      toast.success("GitHub Copilot Authentication Successful");
+    } catch (e: any) {
+      toast.error("Authentication failed", { description: e.message });
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2.5 rounded-lg border border-border/60 bg-card/60 px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <ProviderIcon provider={provider.id} size={15} />
+        <span className="text-[12.5px] font-medium">{provider.label}</span>
+        {provider.id === "copilot-account" && isCopilotAuthed ? (
+          <Badge
+            variant="outline"
+            className="ml-1 h-4 gap-1 border-border/60 bg-green-500/10 text-green-500 px-1.5 text-[10px] font-normal"
+          >
+            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={9} strokeWidth={2} />
+            Authenticated
+          </Badge>
+        ) : provider.id !== "copilot-account" ? (
+          <Badge
+            variant="outline"
+            className="ml-1 h-4 gap-1 border-border/60 bg-muted/40 px-1.5 text-[10px] font-normal text-muted-foreground"
+          >
+            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={9} strokeWidth={2} />
+            CLI Integrated
+          </Badge>
+        ) : null}
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={onRemove}
+          title="Remove provider"
+          className="ml-auto h-6 w-6 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+        >
+          <HugeiconsIcon icon={Cancel01Icon} size={14} />
+        </Button>
+      </div>
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-[10.5px] leading-relaxed text-muted-foreground">
+          {provider.id === "copilot-account" ? (
+            <>
+              Supports advanced models (e.g. Gemini, latest GPT). Requires device authorization.
+            </>
+          ) : (
+            <>
+              Uses the Google Cloud CLI to authenticate automatically. Run{" "}
+              <span className="font-mono">gcloud auth login</span> in your terminal to set it up.
+            </>
+          )}
+        </p>
+        {provider.id === "copilot-account" && !isCopilotAuthed && (
+          <Button 
+            size="sm" 
+            variant="secondary" 
+            className="h-7 text-[11px]" 
+            onClick={handleCopilotAuth}
+            disabled={isAuthenticating}
+          >
+            {isAuthenticating && <Spinner className="mr-1.5 h-3 w-3" />}
+            Authenticate
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
