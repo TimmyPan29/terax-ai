@@ -36,6 +36,10 @@ import { native } from "@/modules/ai/lib/native";
 import { useAgentsStore } from "@/modules/ai/store/agentsStore";
 import { useSnippetsStore } from "@/modules/ai/store/snippetsStore";
 import {
+  codexAccountWasConnected,
+  useCodexStore,
+} from "@/modules/ai/codex/store";
+import {
   AiDiffStack,
   EditorStack,
   GitDiffStack,
@@ -420,7 +424,9 @@ export default function App() {
     (ollamaBaseURL.trim().length > 0 && ollamaModelId.trim().length > 0) ||
     (openaiCompatibleBaseURL.trim().length > 0 &&
       openaiCompatibleModelId.trim().length > 0);
-  const hasComposer = hasAnyKey(apiKeys) || hasLocalModel;
+  const codexConnected = useCodexStore((s) => s.phase === "connected");
+  const refreshCodex = useCodexStore((s) => s.refresh);
+  const hasComposer = hasAnyKey(apiKeys) || hasLocalModel || codexConnected;
 
   const [keysLoaded, setKeysLoaded] = useState(false);
   useEffect(() => {
@@ -451,7 +457,18 @@ export default function App() {
   useEffect(() => {
     if (!prefsHydrated) return;
     setSelectedModelId(prefDefaultModel);
-  }, [prefsHydrated, prefDefaultModel, setSelectedModelId]);
+    if (
+      prefDefaultModel === "openai-account-codex" ||
+      codexAccountWasConnected()
+    ) {
+      void refreshCodex();
+    }
+  }, [
+    prefsHydrated,
+    prefDefaultModel,
+    refreshCodex,
+    setSelectedModelId,
+  ]);
 
   const hydrateSessions = useChatStore((s) => s.hydrateSessions);
   useEffect(() => {

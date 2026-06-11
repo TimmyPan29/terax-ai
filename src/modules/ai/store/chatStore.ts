@@ -31,6 +31,11 @@ import {
 } from "../lib/sessions";
 import { pushRecentModel } from "../lib/modelPrefs";
 import { createContextAwareTransport } from "../lib/transport";
+import { codexRequest } from "@/modules/ai/codex/client";
+import {
+  createCodexTransport,
+  respondToCodexApproval,
+} from "@/modules/ai/codex/transport";
 import type { ToolContext } from "../tools/tools";
 
 type Live = {
@@ -158,6 +163,11 @@ type StoreState = {
   switchSession: (id: string) => void;
   deleteSession: (id: string) => void;
   renameSession: (id: string, title: string) => void;
+  setCodexThread: (
+    id: string,
+    threadId: string,
+    contextImported: boolean,
+  ) => void;
   /** Persist messages of a session and bump its updatedAt + auto-title. */
   persistMessages: (id: string, messages: UIMessage[]) => void;
 };
@@ -258,7 +268,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     getSessionId: () => sessionId,
   };
 
-  const transport = createContextAwareTransport({
+  const standardTransport = createContextAwareTransport({
     getKeys: () => useChatStore.getState().apiKeys,
     toolContext,
     getModelId: () => useChatStore.getState().selectedModelId,
@@ -319,6 +329,62 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       });
     },
   }) as unknown as ChatTransport<UIMessage>;
+
+  const codexTransport = createCodexTransport({
+    sessionId,
+    getSession: () => {
+      const session = useChatStore
+        .getState()
+        .sessions.find((candidate) => candidate.id === sessionId);
+      return {
+        threadId: session?.codexThreadId,
+        contextImported: session?.codexContextImported,
+      };
+    },
+    setThread: (threadId, contextImported) =>
+      useChatStore
+        .getState()
+        .setCodexThread(sessionId, threadId, contextImported),
+    getCwd: () => useChatStore.getState().live.getCwd(),
+    getWorkspaceRoot: () =>
+      useChatStore.getState().live.getWorkspaceRoot(),
+    getCustomInstructions: () =>
+      usePreferencesStore.getState().customInstructions,
+    getAgentPersona: () => {
+      const { activeId, customAgents } = useAgentsStore.getState();
+      const all = [...BUILTIN_AGENTS, ...customAgents];
+      const agent =
+        all.find((candidate) => candidate.id === activeId) ?? BUILTIN_AGENTS[0];
+      return { name: agent.name, instructions: agent.instructions };
+    },
+    onStep: (step) => {
+      useChatStore.getState().patchAgentMeta({ step });
+    },
+    onUsage: (usage) => {
+      useChatStore.getState().patchAgentMeta({
+        tokens: {
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cachedInputTokens: usage.cachedInputTokens,
+        },
+        lastInputTokens: usage.lastInputTokens,
+        lastCachedTokens: usage.lastCachedTokens,
+      });
+    },
+  });
+
+  const transport: ChatTransport<UIMessage> = {
+    sendMessages: (options) =>
+      getModel(useChatStore.getState().selectedModelId).provider ===
+      "openai-account"
+        ? codexTransport.sendMessages(options)
+        : standardTransport.sendMessages(options),
+    reconnectToStream: (options) =>
+      getModel(useChatStore.getState().selectedModelId).provider ===
+      "openai-account"
+        ? codexTransport.reconnectToStream(options)
+        : standardTransport.reconnectToStream(options),
+  };
 
   const initialMessages = seedMessages.get(sessionId);
   seedMessages.delete(sessionId);
@@ -490,6 +556,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
   },
 
   deleteSession: (id) => {
+    const deleted = get().sessions.find((s) => s.id === id);
     const remaining = get().sessions.filter((s) => s.id !== id);
     chats.get(id)?.stop();
     chats.delete(id);
@@ -501,6 +568,11 @@ export const useChatStore = create<StoreState>((set, get) => ({
     }
     void deleteSessionData(id);
     void useTodosStore.getState().clearSession(id);
+    if (deleted?.codexThreadId) {
+      void codexRequest("thread/archive", {
+        threadId: deleted.codexThreadId,
+      }).catch(() => {});
+    }
 
     if (remaining.length === 0) {
       const fresh: SessionMeta = {
@@ -525,6 +597,21 @@ export const useChatStore = create<StoreState>((set, get) => ({
   renameSession: (id, title) => {
     const next = get().sessions.map((s) =>
       s.id === id ? { ...s, title, updatedAt: Date.now() } : s,
+    );
+    set({ sessions: next });
+    void saveSessionsList(next);
+  },
+
+  setCodexThread: (id, threadId, contextImported) => {
+    const next = get().sessions.map((session) =>
+      session.id === id
+        ? {
+            ...session,
+            codexThreadId: threadId,
+            codexContextImported: contextImported,
+            updatedAt: Date.now(),
+          }
+        : session,
     );
     set({ sessions: next });
     void saveSessionsList(next);
@@ -607,3 +694,5 @@ export function stop(): void {
   if (!id) return;
   void chats.get(id)?.stop();
 }
+
+export { respondToCodexApproval };

@@ -1,6 +1,6 @@
 mod modules;
 
-use modules::{agent, fs, git, net, pty, secrets, shell, workspace};
+use modules::{agent, codex, fs, git, net, pty, secrets, shell, workspace};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
@@ -119,7 +119,7 @@ pub fn run() {
             for i in 1..=9 {
                 let id = format!("tab-select-{}", i);
                 let accelerator = format!("CmdOrCtrl+{}", i);
-                let item = tauri::menu::MenuItemBuilder::new(&format!("Select Tab {}", i))
+                let item = tauri::menu::MenuItemBuilder::new(format!("Select Tab {}", i))
                     .id(&id)
                     .accelerator(&accelerator)
                     .build(app)?;
@@ -193,6 +193,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(pty::PtyState::default())
         .manage(shell::ShellState::default())
+        .manage(codex::CodexState::default())
         .manage(secrets::SecretsState::default())
         .manage(fs::watch::FsWatchState::default())
         .manage({
@@ -260,6 +261,11 @@ pub fn run() {
             open_settings_window,
             agent::agent_enable_claude_hooks,
             agent::agent_claude_hooks_status,
+            codex::codex_status,
+            codex::codex_subscribe,
+            codex::codex_request,
+            codex::codex_respond,
+            codex::codex_stop,
             secrets::secrets_get,
             secrets::secrets_set,
             secrets::secrets_delete,

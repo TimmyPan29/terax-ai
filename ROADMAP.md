@@ -136,9 +136,9 @@ Categories that will not be built into Terax. Individual feature requests in the
 - **Notebook and document workspaces.** Anything that turns Terax into a document host rather than a terminal.
 - **Package manager and toolchain UIs.** Use `npm`, `pip`, `cargo` and friends in the terminal directly.
 - **Full web browser features.** Preview pane stays scoped to local dev servers and lightweight doc viewing. No navigation history, no bookmarks, no dev tools.
-- **Telemetry, analytics, accounts.** Terax stays BYOK and offline-respectful.
+- **Terax-hosted accounts and telemetry.** Terax does not operate its own account or analytics service. Provider-managed authentication may be supported through an official local SDK or app-server.
 - **Extension marketplaces at IDE scale.** Narrowly-scoped AI tool / skill bundles may happen eventually. Arbitrary UI or behavior extensions will not.
-- **Third-party subscription session bridges.** Forwarding cloud subscription auth (provider-managed login sessions) through Terax is not technically feasible for third-party clients.
+- **Unofficial subscription session bridges.** Terax does not copy browser sessions or provider tokens. ChatGPT account access is limited to the official Codex app-server, which owns login, token storage, refresh, sandboxing, and account limits.
 
 ## Decision authority
 

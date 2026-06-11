@@ -100,7 +100,11 @@ function PreviewBlock({
   toolName: string;
   input: Record<string, unknown>;
 }) {
-  if (toolName === "bash_run" || toolName === "bash_background") {
+  if (
+    toolName === "bash_run" ||
+    toolName === "bash_background" ||
+    toolName === "codex_command"
+  ) {
     const cwd = typeof input.cwd === "string" ? input.cwd : null;
     return (
       <div className="space-y-1.5">
@@ -116,6 +120,24 @@ function PreviewBlock({
         >
           {String(input.command ?? "")}
         </pre>
+      </div>
+    );
+  }
+  if (toolName === "codex_file_change") {
+    const changes = Array.isArray(input.changes)
+      ? (input.changes as Array<{ path?: unknown; kind?: unknown }>)
+      : [];
+    return (
+      <div className="space-y-1 font-mono text-[11px] text-muted-foreground">
+        {changes.map((change, index) => (
+          <div key={`${String(change.path)}-${index}`} className="truncate">
+            {String(change.kind ?? "update")} | {String(change.path ?? "")}
+          </div>
+        ))}
+        <div className="text-[10.5px] text-muted-foreground/80">
+          Review the first file in the diff tab. Approval applies to all listed
+          changes.
+        </div>
       </div>
     );
   }
@@ -180,4 +202,3 @@ function PreviewBlock({
     </pre>
   );
 }
-

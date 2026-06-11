@@ -601,7 +601,7 @@ function SubagentModelsBlock() {
   // fallback rule in runSubagent.resolveModelId, so the picker only offers
   // models that will actually run (anything else silently falls back).
   const providerUsable = (id: ProviderId): boolean =>
-    !providerNeedsKey(id) || !!keys?.[id];
+    id !== "openai-account" && (!providerNeedsKey(id) || !!keys?.[id]);
 
   const pick = (type: SubagentType, modelId: ModelId | null) => {
     const next = { ...overrides };

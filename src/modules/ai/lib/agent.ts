@@ -101,6 +101,11 @@ export async function buildLanguageModel(
 
   let built: LanguageModel;
   switch (provider) {
+    case "openai-account": {
+      throw new Error(
+        "OpenAI Account uses Codex app-server and cannot be built as a language model.",
+      );
+    }
     case "openai": {
       const { createOpenAI } = await import("@ai-sdk/openai");
       built = createOpenAI({ apiKey: key })(resolvedModelId);

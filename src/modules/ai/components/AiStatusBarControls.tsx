@@ -57,9 +57,11 @@ import { ACCEPTED_FILES, useComposer } from "../lib/composer";
 import { toggleFavoriteModel } from "../lib/modelPrefs";
 import { useChatStore } from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { useCodexStore } from "@/modules/ai/codex/store";
 
 const PROVIDER_ICON = {
   openai: ChatGptIcon,
+  "openai-account": ChatGptIcon,
   anthropic: ClaudeIcon,
   google: GoogleGeminiIcon,
   xai: Grok02Icon,
@@ -213,16 +215,24 @@ function ModelDropdown() {
   const favoriteIds = usePreferencesStore((s) => s.favoriteModelIds);
   const recentIds = usePreferencesStore((s) => s.recentModelIds);
   const current = getModel(selected);
+  const codexConnected = useCodexStore((s) => s.phase === "connected");
   const [search, setSearch] = useState("");
   const [activeProvider, setActiveProvider] = useState<ProviderId | null>(null);
   const [tab, setTab] = useState<Tab>("all");
   const inputRef = useRef<HTMLInputElement>(null);
-  const currentProviderHasKey = providerNeedsKey(current.provider)
-    ? !!apiKeys[current.provider]
-    : true;
+  const currentProviderHasKey =
+    current.provider === "openai-account"
+      ? codexConnected
+      : providerNeedsKey(current.provider)
+        ? !!apiKeys[current.provider]
+        : true;
 
   const hasKeyFor = (id: ProviderId) =>
-    providerNeedsKey(id) ? !!apiKeys[id] : true;
+    id === "openai-account"
+      ? codexConnected
+      : providerNeedsKey(id)
+        ? !!apiKeys[id]
+        : true;
 
   const sortedProviders = useMemo(() => {
     const configured: (typeof PROVIDERS)[number][] = [];
@@ -232,7 +242,7 @@ function ModelDropdown() {
     }
     return { configured, unconfigured };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiKeys]);
+  }, [apiKeys, codexConnected]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

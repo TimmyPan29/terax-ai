@@ -32,7 +32,11 @@ import { useEffect, useMemo } from "react";
 import { estimateCost, getModel, getModelContextLimit } from "../config";
 import type { SessionMeta } from "../lib/sessions";
 import { useAgentsStore } from "../store/agentsStore";
-import { getOrCreateChat, useChatStore } from "../store/chatStore";
+import {
+  getOrCreateChat,
+  respondToCodexApproval,
+  useChatStore,
+} from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { usePlanStore } from "../store/planStore";
 import { useExecutorStore } from "../store/executorStore";
@@ -162,7 +166,10 @@ function Body({
               status={helpers.status}
               error={helpers.error}
               clearError={helpers.clearError}
-              addToolApprovalResponse={helpers.addToolApprovalResponse}
+              addToolApprovalResponse={({ id, approved }) => {
+                if (respondToCodexApproval(id, approved)) return;
+                return helpers.addToolApprovalResponse({ id, approved });
+              }}
               stop={helpers.stop}
             />
           </div>

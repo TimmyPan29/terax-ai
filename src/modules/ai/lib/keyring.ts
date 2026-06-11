@@ -11,6 +11,7 @@ export type ProviderKeys = Record<ProviderId, string | null>;
 
 export const EMPTY_PROVIDER_KEYS: ProviderKeys = {
   openai: null,
+  "openai-account": null,
   anthropic: null,
   google: null,
   xai: null,

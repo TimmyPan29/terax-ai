@@ -2,6 +2,7 @@ export const KEYRING_SERVICE = "terax-ai";
 
 export type ProviderId =
   | "openai"
+  | "openai-account"
   | "anthropic"
   | "google"
   | "xai"
@@ -32,6 +33,13 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     keyringAccount: "openai-api-key",
     keyPrefix: "sk-",
     consoleUrl: "https://platform.openai.com/api-keys",
+  },
+  {
+    id: "openai-account",
+    label: "OpenAI Account",
+    keyringAccount: "",
+    keyPrefix: null,
+    consoleUrl: "https://developers.openai.com/codex/app-server",
   },
   {
     id: "anthropic",
@@ -150,6 +158,15 @@ export type ModelInfo = {
 };
 
 export const MODELS = [
+  {
+    id: "openai-account-codex",
+    provider: "openai-account",
+    label: "Codex Account",
+    hint: "ChatGPT",
+    description: "Codex models available through your ChatGPT account.",
+    capabilities: { intelligence: 5, speed: 3, cost: 5 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+  },
   // ── OpenAI ────────────────────────────────────────────────────────────────
   {
     id: "gpt-5.5",
@@ -537,6 +554,7 @@ export type ThinkingMode = "always" | "optional" | "never";
 /** Hybrid models whose thinking we can toggle through providerOptions. Only the
  *  three native SDKs expose this; gateway/local providers are model-bound. */
 const THINKING_OPTIONAL: ReadonlySet<string> = new Set([
+  "openai-account-codex",
   // OpenAI GPT-5 family — reasoningEffort
   "gpt-5.5",
   "gpt-5.4-mini",
@@ -690,6 +708,7 @@ export function estimateCost(
 
 /** Providers that do not require an API key (local servers, key-optional). */
 export const KEYLESS_PROVIDERS: readonly ProviderId[] = [
+  "openai-account",
   "lmstudio",
   "mlx",
   "ollama",
@@ -703,6 +722,7 @@ export function providerNeedsKey(id: ProviderId): boolean {
 /** True for providers that accept an API key — required *or* optional.
  *  Used by Settings to decide whether to render a key card at all. */
 export function providerSupportsKey(id: ProviderId): boolean {
+  if (id === "openai-account") return false;
   if (providerNeedsKey(id)) return true;
   const p = getProvider(id);
   return !!p.keyOptional;
@@ -729,7 +749,10 @@ export const DEFAULT_AUTOCOMPLETE_MODEL: Partial<Record<ProviderId, string>> = {
 /** Curated list of fast models suitable for inline completion (speed ≥ 4). */
 export function getAutocompleteEligibleModels(): readonly ModelInfo[] {
   return MODELS.filter(
-    (m) => m.capabilities.speed >= 4 && m.id !== "openai-compatible-custom",
+    (m) =>
+      m.provider !== "openai-account" &&
+      m.capabilities.speed >= 4 &&
+      m.id !== "openai-compatible-custom",
   );
 }
 
