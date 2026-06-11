@@ -264,31 +264,46 @@ export function AiComposerProvider({ children }: ProviderProps) {
         (f) =>
           `<selection source="${f.source ?? "terminal"}">\n${f.text ?? ""}\n</selection>`,
       );
-    const { body: bodyAfterTokens, blocks: snippetBlocks } = expandSnippetTokens(
+    const { body: bodyAfterTokens, matchedSnippets } = expandSnippetTokens(
       effectiveText,
       useSnippetsStore.getState().snippets,
     );
     const seenHandles = new Set<string>();
     const allSnippetBlocks: string[] = [];
-    for (const s of pickedSnippets) {
-      if (seenHandles.has(s.handle)) continue;
+    
+    let finalBody = bodyAfterTokens;
+    let argumentReplaced = false;
+
+    const processSnippet = (s: Snippet) => {
+      if (seenHandles.has(s.handle)) return;
       seenHandles.add(s.handle);
+      let content = s.content;
+      if (content.includes("{argument}")) {
+        content = content.replace(/\{argument\}/g, bodyAfterTokens);
+        argumentReplaced = true;
+      }
       allSnippetBlocks.push(
-        `<snippet name="${s.handle}">\n${s.content}\n</snippet>`,
+        `<snippet name="${s.handle}">\n${content}\n</snippet>`,
       );
+    };
+
+    for (const s of pickedSnippets) {
+      processSnippet(s);
     }
-    for (const block of snippetBlocks) {
-      const m = block.match(/^<snippet name="([^"]+)"/);
-      if (m && seenHandles.has(m[1])) continue;
-      if (m) seenHandles.add(m[1]);
-      allSnippetBlocks.push(block);
+    for (const s of matchedSnippets) {
+      processSnippet(s);
     }
+
+    if (argumentReplaced) {
+      finalBody = "";
+    }
+
     const composed = [
       commandMarker ?? "",
       allSnippetBlocks.join("\n\n"),
       selectionBlocks.join("\n\n"),
       fileBlocks.join("\n\n"),
-      bodyAfterTokens,
+      finalBody,
     ]
       .filter(Boolean)
       .join("\n\n");
