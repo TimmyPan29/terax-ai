@@ -1,8 +1,9 @@
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
@@ -110,7 +111,7 @@ impl CodexState {
             return Ok(());
         }
 
-        let mut child = Command::new(resolve_codex_binary())
+        let mut child = codex_command()
             .args(["app-server", "--listen", "stdio://"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -362,7 +363,7 @@ fn broadcast(core: &CodexCore, message: Value) {
 }
 
 fn read_codex_version() -> Result<String, String> {
-    let output = Command::new(resolve_codex_binary())
+    let output = codex_command()
         .arg("--version")
         .output()
         .map_err(|e| format!("Codex CLI is not installed or is not available on PATH: {e}"))?;
@@ -375,6 +376,39 @@ fn read_codex_version() -> Result<String, String> {
         .find(|part| part.chars().next().is_some_and(|c| c.is_ascii_digit()))
         .unwrap_or(&raw)
         .to_string())
+}
+
+fn codex_command() -> Command {
+    let binary = resolve_codex_binary();
+    let mut command = Command::new(&binary);
+    if let Some(path) = codex_search_path(&binary) {
+        command.env("PATH", path);
+    }
+    command
+}
+
+fn codex_search_path(binary: &Path) -> Option<OsString> {
+    let mut directories = Vec::new();
+    if let Some(parent) = binary
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        directories.push(parent.to_path_buf());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        directories.push(PathBuf::from("/opt/homebrew/bin"));
+        directories.push(PathBuf::from("/usr/local/bin"));
+    }
+    if let Some(home) = dirs::home_dir() {
+        directories.push(home.join(".local/bin"));
+        directories.push(home.join(".npm-global/bin"));
+    }
+    if let Some(path) = std::env::var_os("PATH") {
+        directories.extend(std::env::split_paths(&path));
+    }
+    directories.dedup();
+    std::env::join_paths(directories).ok()
 }
 
 fn resolve_codex_binary() -> PathBuf {
@@ -602,6 +636,16 @@ mod tests {
         assert!(version_is_compatible("0.139.0"));
         assert!(version_is_compatible("1.0.0"));
         assert!(!version_is_compatible("0.138.9"));
+    }
+
+    #[test]
+    fn adds_codex_binary_directory_to_child_path() {
+        let binary = Path::new("/custom/codex/bin/codex");
+        let path = codex_search_path(binary).unwrap();
+        assert_eq!(
+            std::env::split_paths(&path).next(),
+            Some(PathBuf::from("/custom/codex/bin"))
+        );
     }
 
     #[test]
