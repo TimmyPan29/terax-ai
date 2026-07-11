@@ -106,7 +106,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          APPIMAGE=$(ls src-tauri/target/release/bundle/appimage/*.AppImage | head -n1)
+          # This fork only bundles deb on Linux; skip when no AppImage was built.
+          shopt -s nullglob
+          candidates=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          if [ ${#candidates[@]} -eq 0 ]; then
+            echo "No AppImage bundle produced; skipping wayland fixup."
+            exit 0
+          fi
+          APPIMAGE=${candidates[0]}
           BASENAME=$(basename "$APPIMAGE")
           echo "Patching: $APPIMAGE"
 
@@ -172,6 +179,13 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
+
+          # This fork only ships deb on Linux; nothing to patch without an AppImage.
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.assets[].name' | grep -q '_amd64\.AppImage\.sig$'; then
+            echo "No AppImage signature asset on $TAG; skipping updater patch."
+            exit 0
+          fi
 
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
             --pattern "latest.json" --pattern "*_amd64.AppImage.sig" --clobber
