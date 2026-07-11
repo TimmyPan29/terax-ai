@@ -6,7 +6,11 @@ import {
   type GitStatusSnapshot,
 } from "@/modules/ai/lib/native";
 import { useChatStore } from "@/modules/ai/store/chatStore";
-import { getModel, providerNeedsKey } from "@/modules/ai/config";
+import {
+  modelSupportsTemperature,
+  providerNeedsKey,
+  resolveModel,
+} from "@/modules/ai/config";
 import {
   invalidateDiff,
   invalidateRepoDiffs,
@@ -369,7 +373,7 @@ export function useSourceControlPanel(
   const selectedModelId = useChatStore((state) => state.selectedModelId);
   const agentStatus = useChatStore((state) => state.agentMeta.status);
   const hasApiKeyForSelected = useChatStore((state) => {
-    const model = getModel(state.selectedModelId);
+    const model = resolveModel(state.selectedModelId);
     if (model.provider === "openai-account") return false;
     return !providerNeedsKey(model.provider) || !!state.apiKeys[model.provider];
   });
@@ -463,7 +467,11 @@ export function useSourceControlPanel(
 
   const allClean = stagedEntries.length === 0 && unstagedEntries.length === 0;
   const canPush = !!status?.upstream && status.behind === 0;
-  const selectedModel = getModel(selectedModelId);
+  const selectedModel = resolveModel(selectedModelId);
+  const selectedModelSupportsTemperature = modelSupportsTemperature(
+    selectedModel.provider,
+    selectedModel.id,
+  );
   const aiBusy = agentStatus !== "idle" && agentStatus !== "error";
   const anyActionBusy = localActionBusy !== null || summary.busyAction !== null;
   const aiUnavailableReason = useMemo(() => {
@@ -891,7 +899,7 @@ export function useSourceControlPanel(
         system: COMMIT_MESSAGE_SYSTEM_PROMPT,
         prompt: buildCommitMessagePrompt(stagedEntries, diffText, truncated),
         maxOutputTokens: COMMIT_MESSAGE_MAX_OUTPUT_TOKENS,
-        temperature: 0.2,
+        ...(selectedModelSupportsTemperature ? { temperature: 0.2 } : {}),
       });
       let message = cleanCommitMessage(result.text);
       if (!isValidCommitMessage(message)) {
@@ -900,7 +908,7 @@ export function useSourceControlPanel(
           system: COMMIT_MESSAGE_SYSTEM_PROMPT,
           prompt: buildRepairCommitMessagePrompt(message, stagedEntries),
           maxOutputTokens: COMMIT_MESSAGE_MAX_OUTPUT_TOKENS,
-          temperature: 0,
+          ...(selectedModelSupportsTemperature ? { temperature: 0 } : {}),
         });
         message = cleanCommitMessage(repair.text);
       }
@@ -927,6 +935,7 @@ export function useSourceControlPanel(
     openrouterModelId,
     repo,
     selectedModelId,
+    selectedModelSupportsTemperature,
     stagedEntries,
   ]);
 

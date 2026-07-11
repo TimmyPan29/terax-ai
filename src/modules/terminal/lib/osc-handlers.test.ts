@@ -1,12 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { Terminal } from "@xterm/xterm";
 import {
   createShellIntegrationState,
-  registerClipboardHandler,
   registerCwdHandler,
+  registerOsc52ClipboardHandler,
   registerPromptTracker,
 } from "./osc-handlers";
+
+// git-bash path mapping is Windows-only; exercise that branch.
+vi.mock("@/lib/platform", () => ({ IS_WINDOWS: true }));
 
 /**
  * Minimal in-memory fake of the xterm `Terminal` surface we touch — just
@@ -37,6 +40,10 @@ vi.mock("@/modules/settings/preferences", () => ({
   },
 }));
 
+async function flushClipboardQueue() {
+  await Promise.resolve();
+}
+
 describe("OSC 7 cwd handler — gated by OSC 133 in-command state", () => {
   it("accepts OSC 7 when no command is running", () => {
     const { term, handlers } = makeFakeTerm();
@@ -51,6 +58,19 @@ describe("OSC 7 cwd handler — gated by OSC 133 in-command state", () => {
     handlers.get(7)?.("file://host/home/me/project");
 
     expect(onCwd).toHaveBeenCalledWith("/home/me/project");
+  });
+
+  it("maps git-bash /c/ cwd to a Windows drive path", () => {
+    const { term, handlers } = makeFakeTerm();
+    const state = createShellIntegrationState();
+    const onCwd = vi.fn();
+    registerPromptTracker(term, state);
+    registerCwdHandler(term, onCwd, state);
+
+    handlers.get(133)?.("A");
+    handlers.get(7)?.("file:///c/Users/leo/project");
+
+    expect(onCwd).toHaveBeenCalledWith("C:/Users/leo/project");
   });
 
   it("rejects OSC 7 emitted while a command is running", () => {
@@ -107,125 +127,122 @@ describe("OSC 7 cwd handler — gated by OSC 133 in-command state", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// OSC 52 clipboard handler
-// ---------------------------------------------------------------------------
+describe("OSC 133 command-state tracking", () => {
+  it("reports running only between C and D, not while typing at the prompt", () => {
+    const { term, handlers } = makeFakeTerm();
+    const onCommandState = vi.fn();
+    registerPromptTracker(term, undefined, onCommandState);
+
+    handlers.get(133)?.("A");
+    expect(onCommandState).toHaveBeenLastCalledWith(false);
+    handlers.get(133)?.("B");
+    expect(onCommandState).toHaveBeenCalledTimes(1);
+    handlers.get(133)?.("C;claude");
+    expect(onCommandState).toHaveBeenLastCalledWith(true);
+    handlers.get(133)?.("D;0");
+    expect(onCommandState).toHaveBeenLastCalledWith(false);
+  });
+
+  it("clears running state on a bare new prompt when D was lost", () => {
+    const { term, handlers } = makeFakeTerm();
+    const onCommandState = vi.fn();
+    registerPromptTracker(term, undefined, onCommandState);
+
+    handlers.get(133)?.("C;vim");
+    expect(onCommandState).toHaveBeenLastCalledWith(true);
+    handlers.get(133)?.("A");
+    expect(onCommandState).toHaveBeenLastCalledWith(false);
+  });
+});
 
 describe("OSC 52 clipboard handler", () => {
-  const writeTextMock = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined);
-
-  beforeEach(() => {
-    writeTextMock.mockClear();
-    // Node/vitest doesn't provide navigator.clipboard — polyfill it.
-    if (!navigator.clipboard) {
-      Object.defineProperty(navigator, "clipboard", {
-        value: { writeText: writeTextMock },
-        writable: true,
-        configurable: true,
-      });
-    } else {
-      navigator.clipboard.writeText = writeTextMock;
-    }
-    vi.mocked(usePreferencesStore.getState).mockReturnValue({
-      terminalOsc52Clipboard: true,
-    } as any);
-  });
-
-  it("writes decoded base64 text to the clipboard", () => {
+  it("writes decoded clipboard payloads", async () => {
     const { term, handlers } = makeFakeTerm();
-    registerClipboardHandler(term);
+    const writeClipboard = vi.fn();
+    registerOsc52ClipboardHandler(term, writeClipboard);
 
-    // "hello" → base64 "aGVsbG8="
-    handlers.get(52)?.("c;aGVsbG8=");
+    const result = handlers.get(52)?.("c;SGVsbG8=");
+    await flushClipboardQueue();
 
-    expect(writeTextMock).toHaveBeenCalledWith("hello");
+    expect(result).toBe(true);
+    expect(writeClipboard).toHaveBeenCalledWith("Hello");
   });
 
+  it("decodes UTF-8 payloads", async () => {
+    const { term, handlers } = makeFakeTerm();
+    const writeClipboard = vi.fn();
+    registerOsc52ClipboardHandler(term, writeClipboard);
 
+    handlers.get(52)?.("c;8J+YgCBtZXJoYWJh");
+    await flushClipboardQueue();
 
-  it("rejects OSC 52 if user preference is disabled", () => {
+    expect(writeClipboard).toHaveBeenCalledWith("😀 merhaba");
+  });
+
+  it("does not block the parser on clipboard writes", async () => {
+    const { term, handlers } = makeFakeTerm();
+    const writeClipboard = vi.fn(() => new Promise<void>(() => {}));
+    registerOsc52ClipboardHandler(term, writeClipboard);
+
+    const result = handlers.get(52)?.("c;SGVsbG8=");
+
+    expect(result).toBe(true);
+    expect(writeClipboard).not.toHaveBeenCalled();
+    await flushClipboardQueue();
+    expect(writeClipboard).toHaveBeenCalledWith("Hello");
+  });
+
+  it("ignores primary-selection-only payloads", async () => {
+    const { term, handlers } = makeFakeTerm();
+    const writeClipboard = vi.fn();
+    registerOsc52ClipboardHandler(term, writeClipboard);
+
+    await handlers.get(52)?.("p;SGVsbG8=");
+    await flushClipboardQueue();
+
+    expect(writeClipboard).not.toHaveBeenCalled();
+  });
+
+  it("ignores clipboard queries and malformed payloads", async () => {
+    const { term, handlers } = makeFakeTerm();
+    const writeClipboard = vi.fn();
+    registerOsc52ClipboardHandler(term, writeClipboard);
+
+    await handlers.get(52)?.("c;?");
+    await handlers.get(52)?.("c;not base64!");
+    await handlers.get(52)?.("s;SGVsbG8=");
+    await flushClipboardQueue();
+
+    expect(writeClipboard).not.toHaveBeenCalled();
+  });
+
+  it("ignores oversized payloads", async () => {
+    const { term, handlers } = makeFakeTerm();
+    const writeClipboard = vi.fn();
+    registerOsc52ClipboardHandler(term, writeClipboard);
+
+    await handlers.get(52)?.(`c;${"A".repeat(1_398_110)}`);
+    await flushClipboardQueue();
+
+    expect(writeClipboard).not.toHaveBeenCalled();
+  });
+
+  it("rejects OSC 52 if user preference is disabled", async () => {
     vi.mocked(usePreferencesStore.getState).mockReturnValue({
       terminalOsc52Clipboard: false,
     } as any);
 
     const { term, handlers } = makeFakeTerm();
-    registerClipboardHandler(term);
+    const writeClipboard = vi.fn();
+    registerOsc52ClipboardHandler(term, writeClipboard);
 
-    handlers.get(52)?.("c;aGVsbG8=");
+    await handlers.get(52)?.("c;SGVsbG8=");
+    await flushClipboardQueue();
 
-    expect(writeTextMock).not.toHaveBeenCalled();
-  });
+    expect(writeClipboard).not.toHaveBeenCalled();
 
-  it("ignores read queries (Pd === '?')", () => {
-    const { term, handlers } = makeFakeTerm();
-    registerClipboardHandler(term);
-
-    handlers.get(52)?.("c;?");
-
-    expect(writeTextMock).not.toHaveBeenCalled();
-  });
-
-  it("ignores empty Pd", () => {
-    const { term, handlers } = makeFakeTerm();
-    registerClipboardHandler(term);
-
-    handlers.get(52)?.("c;");
-
-    expect(writeTextMock).not.toHaveBeenCalled();
-  });
-
-  it("drops payloads exceeding 100 KiB", () => {
-    const { term, handlers } = makeFakeTerm();
-    registerClipboardHandler(term);
-
-    // Create a base64 string that decodes to > 100 KiB.
-    const big = btoa("x".repeat(100 * 1024 + 1));
-    handlers.get(52)?.(`c;${big}`);
-
-    expect(writeTextMock).not.toHaveBeenCalled();
-  });
-
-  it("handles invalid base64 gracefully", () => {
-    const { term, handlers } = makeFakeTerm();
-    registerClipboardHandler(term);
-
-    // "!!!" is not valid base64.
-    handlers.get(52)?.("c;!!!");
-
-    expect(writeTextMock).not.toHaveBeenCalled();
-  });
-
-  it("drops data without a semicolon separator", () => {
-    const { term, handlers } = makeFakeTerm();
-    registerClipboardHandler(term);
-
-    handlers.get(52)?.("aGVsbG8=");
-
-    expect(writeTextMock).not.toHaveBeenCalled();
-  });
-
-  it("correctly decodes multi-byte UTF-8 (CJK characters)", () => {
-    const { term, handlers } = makeFakeTerm();
-    registerClipboardHandler(term);
-
-    // Encode "你好" as UTF-8 bytes then base64.
-    const encoded = btoa(
-      String.fromCharCode(
-        ...new TextEncoder().encode("你好"),
-      ),
-    );
-    handlers.get(52)?.(`c;${encoded}`);
-
-    expect(writeTextMock).toHaveBeenCalledWith("你好");
-  });
-
-  it("disposes cleanly", () => {
-    const { term, handlers } = makeFakeTerm();
-    const dispose = registerClipboardHandler(term);
-
-    dispose();
-
-    // Handler should be removed from the map.
-    expect(handlers.has(52)).toBe(false);
+    vi.mocked(usePreferencesStore.getState).mockReturnValue({
+      terminalOsc52Clipboard: true,
+    } as any);
   });
 });

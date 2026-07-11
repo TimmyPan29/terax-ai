@@ -19,6 +19,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import { currentWorkspaceEnv } from "@/modules/workspace";
 import {
   ArrowDown01Icon,
   Folder01Icon,
@@ -30,8 +32,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { currentWorkspaceEnv } from "@/modules/workspace";
-import { usePreferencesStore } from "@/modules/settings/preferences";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "@/modules/explorer/lib/menuItemClass";
 import { segmentsFromCwd } from "./lib/pathUtils";
 
@@ -129,10 +129,7 @@ export function CwdBreadcrumb({ cwd, filePath, home, onCd }: Props) {
             <CollapsedSegments segments={middle} onCd={onCd} />
           ) : null}
           {middle.map((s) => (
-            <span
-              key={s.fullPath}
-              className="contents max-md:hidden"
-            >
+            <span key={s.fullPath} className="contents max-md:hidden">
               <BreadcrumbSegment
                 label={s.label}
                 isHome={s.isHome}

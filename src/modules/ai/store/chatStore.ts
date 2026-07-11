@@ -1,23 +1,17 @@
-import { Chat, type UIMessage } from "@ai-sdk/react";
-import {
-  type ChatTransport,
-  lastAssistantMessageIsCompleteWithApprovalResponses,
-} from "ai";
+import type { Chat, UIMessage } from "@ai-sdk/react";
 import { create } from "zustand";
 import {
   DEFAULT_MODEL_ID,
+  endpointIdFromCompatModel,
   getModel,
+  isCompatModelId,
   providerNeedsKey,
   type ModelId,
   type ProviderId,
 } from "../config";
-import { usePreferencesStore } from "@/modules/settings/preferences";
-import { BUILTIN_AGENTS } from "../lib/agents";
-import { useAgentsStore } from "./agentsStore";
-import { usePlanStore } from "./planStore";
 import { useTodosStore } from "./todoStore";
 import type { AgentUsage } from "../lib/agent";
-import { EMPTY_PROVIDER_KEYS, type ProviderKeys } from "../lib/keyring";
+import { EMPTY_PROVIDER_KEYS, type ProviderKeys, type CustomEndpointKeys } from "../lib/keyring";
 import {
   deleteSessionData,
   deriveTitle,
@@ -30,15 +24,9 @@ import {
   type SessionMeta,
 } from "../lib/sessions";
 import { pushRecentModel } from "../lib/modelPrefs";
-import { createContextAwareTransport } from "../lib/transport";
 import { codexRequest } from "@/modules/ai/codex/client";
-import {
-  createCodexTransport,
-  respondToCodexApproval,
-} from "@/modules/ai/codex/transport";
-import type { ToolContext } from "../tools/tools";
 
-type Live = {
+export type Live = {
   getCwd: () => string | null;
   getTerminalContext: () => string | null;
   isActiveTerminalPrivate: () => boolean;
@@ -122,8 +110,11 @@ type StoreState = {
   setApiKeys: (keys: ProviderKeys) => void;
   setApiKey: (provider: ProviderId, key: string | null) => void;
 
-  selectedModelId: ModelId;
-  setSelectedModelId: (id: ModelId) => void;
+  customEndpointKeys: CustomEndpointKeys;
+  setCustomEndpointKeys: (keys: CustomEndpointKeys) => void;
+
+  selectedModelId: string;
+  setSelectedModelId: (id: string) => void;
 
   /** User's "deep thinking" preference (persisted). Effective state also
    *  depends on the model — see resolveThinkingEnabled. */
@@ -185,9 +176,9 @@ const NOOP_LIVE: Live = {
 };
 
 const CHATS_LRU_CAP = 8;
-const chats = new Map<string, Chat<UIMessage>>();
+export const chats = new Map<string, Chat<UIMessage>>();
 
-function touchChat(id: string, c: Chat<UIMessage>) {
+export function touchChat(id: string, c: Chat<UIMessage>) {
   if (chats.has(id)) chats.delete(id);
   chats.set(id, c);
   while (chats.size > CHATS_LRU_CAP) {
@@ -201,7 +192,7 @@ function touchChat(id: string, c: Chat<UIMessage>) {
 }
 // Initial messages for a session, populated at hydration time and consumed
 // when the matching Chat is constructed.
-const seedMessages = new Map<string, UIMessage[]>();
+export const seedMessages = new Map<string, UIMessage[]>();
 
 // Trailing debounce for per-token message persistence. Streaming fires
 // `persistMessages` on every token; without this we'd JSON-serialize the
@@ -247,162 +238,6 @@ function writeThinkingEnabled(v: boolean): void {
   }
 }
 
-function makeChat(sessionId: string): Chat<UIMessage> {
-  const readCache = new Map<string, { size: number; hash: number }>();
-  const toolContext: ToolContext = {
-    getCwd: () => useChatStore.getState().live.getCwd(),
-    getWorkspaceRoot: () =>
-      useChatStore.getState().live.getWorkspaceRoot(),
-    getTerminalContext: () =>
-      useChatStore.getState().live.getTerminalContext(),
-    isActiveTerminalPrivate: () =>
-      useChatStore.getState().live.isActiveTerminalPrivate(),
-    injectIntoActivePty: (text) =>
-      useChatStore.getState().live.injectIntoActivePty(text),
-    openPreview: (url) => useChatStore.getState().live.openPreview(url),
-    spawnAgent: (prompt) =>
-      useChatStore.getState().live.spawnManagedAgent(prompt, sessionId),
-    readAgentOutput: (leafId) =>
-      useChatStore.getState().live.readLeafBuffer(leafId),
-    readCache,
-    getSessionId: () => sessionId,
-  };
-
-  const standardTransport = createContextAwareTransport({
-    getKeys: () => useChatStore.getState().apiKeys,
-    toolContext,
-    getModelId: () => useChatStore.getState().selectedModelId,
-    getCustomInstructions: () =>
-      usePreferencesStore.getState().customInstructions,
-    getAgentPersona: () => {
-      const { activeId, customAgents } = useAgentsStore.getState();
-      const all = [...BUILTIN_AGENTS, ...customAgents];
-      const a = all.find((x) => x.id === activeId) ?? BUILTIN_AGENTS[0];
-      return { name: a.name, instructions: a.instructions };
-    },
-    getLive: () => {
-      const live = useChatStore.getState().live;
-      return {
-        cwd: live.getCwd(),
-        terminalPrivate: live.isActiveTerminalPrivate(),
-        workspaceRoot: live.getWorkspaceRoot(),
-        activeFile: live.getActiveFile(),
-      };
-    },
-    getPlanMode: () => usePlanStore.getState().active,
-    getThinking: () => useChatStore.getState().thinkingEnabled,
-    getLmstudioBaseURL: () => usePreferencesStore.getState().lmstudioBaseURL,
-    getLmstudioModelId: () => usePreferencesStore.getState().lmstudioModelId,
-    getMlxBaseURL: () => usePreferencesStore.getState().mlxBaseURL,
-    getMlxModelId: () => usePreferencesStore.getState().mlxModelId,
-    getOllamaBaseURL: () => usePreferencesStore.getState().ollamaBaseURL,
-    getOllamaModelId: () => usePreferencesStore.getState().ollamaModelId,
-    getOpenaiCompatibleBaseURL: () =>
-      usePreferencesStore.getState().openaiCompatibleBaseURL,
-    getOpenaiCompatibleModelId: () =>
-      usePreferencesStore.getState().openaiCompatibleModelId,
-    getOpenaiCompatibleContextLimit: () =>
-      usePreferencesStore.getState().openaiCompatibleContextLimit,
-    getOpenrouterModelId: () =>
-      usePreferencesStore.getState().openrouterModelId,
-    onStep: (step) => {
-      useChatStore.getState().patchAgentMeta({ step });
-    },
-    onCompact: (info) => {
-      useChatStore.getState().patchAgentMeta({
-        compactionNotice: { droppedCount: info.droppedCount, at: Date.now() },
-      });
-    },
-    onFinishMeta: (info) => {
-      useChatStore.getState().patchAgentMeta({ hitStepCap: info.hitStepCap });
-    },
-    onUsage: (delta) => {
-      const cur = useChatStore.getState().agentMeta.tokens;
-      useChatStore.getState().patchAgentMeta({
-        tokens: {
-          inputTokens: cur.inputTokens + delta.inputTokens,
-          outputTokens: cur.outputTokens + delta.outputTokens,
-          cachedInputTokens: cur.cachedInputTokens + delta.cachedInputTokens,
-        },
-        lastInputTokens: delta.lastInputTokens,
-        lastCachedTokens: delta.lastCachedTokens,
-      });
-    },
-  }) as unknown as ChatTransport<UIMessage>;
-
-  const codexTransport = createCodexTransport({
-    sessionId,
-    getSession: () => {
-      const session = useChatStore
-        .getState()
-        .sessions.find((candidate) => candidate.id === sessionId);
-      return {
-        threadId: session?.codexThreadId,
-        contextImported: session?.codexContextImported,
-      };
-    },
-    setThread: (threadId, contextImported) =>
-      useChatStore
-        .getState()
-        .setCodexThread(sessionId, threadId, contextImported),
-    getCwd: () => useChatStore.getState().live.getCwd(),
-    getWorkspaceRoot: () =>
-      useChatStore.getState().live.getWorkspaceRoot(),
-    getCustomInstructions: () =>
-      usePreferencesStore.getState().customInstructions,
-    getAgentPersona: () => {
-      const { activeId, customAgents } = useAgentsStore.getState();
-      const all = [...BUILTIN_AGENTS, ...customAgents];
-      const agent =
-        all.find((candidate) => candidate.id === activeId) ?? BUILTIN_AGENTS[0];
-      return { name: agent.name, instructions: agent.instructions };
-    },
-    onStep: (step) => {
-      useChatStore.getState().patchAgentMeta({ step });
-    },
-    onUsage: (usage) => {
-      useChatStore.getState().patchAgentMeta({
-        tokens: {
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          cachedInputTokens: usage.cachedInputTokens,
-        },
-        lastInputTokens: usage.lastInputTokens,
-        lastCachedTokens: usage.lastCachedTokens,
-      });
-    },
-  });
-
-  const transport: ChatTransport<UIMessage> = {
-    sendMessages: (options) =>
-      getModel(useChatStore.getState().selectedModelId).provider ===
-      "openai-account"
-        ? codexTransport.sendMessages(options)
-        : standardTransport.sendMessages(options),
-    reconnectToStream: (options) =>
-      getModel(useChatStore.getState().selectedModelId).provider ===
-      "openai-account"
-        ? codexTransport.reconnectToStream(options)
-        : standardTransport.reconnectToStream(options),
-  };
-
-  const initialMessages = seedMessages.get(sessionId);
-  seedMessages.delete(sessionId);
-
-  return new Chat<UIMessage>({
-    id: sessionId,
-    transport,
-    messages: initialMessages,
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    onError: (e) => {
-      useChatStore.getState().patchAgentMeta({
-        status: "error",
-        error: e instanceof Error ? e.message : String(e),
-      });
-    },
-  });
-}
-
 export const useChatStore = create<StoreState>((set, get) => ({
   live: NOOP_LIVE,
   setLive: (live) => set({ live }),
@@ -419,6 +254,9 @@ export const useChatStore = create<StoreState>((set, get) => ({
   setApiKey: (provider, key) => {
     set({ apiKeys: { ...get().apiKeys, [provider]: key } });
   },
+
+  customEndpointKeys: {},
+  setCustomEndpointKeys: (keys) => set({ customEndpointKeys: keys }),
 
   selectedModelId: DEFAULT_MODEL_ID,
   setSelectedModelId: (id) => {
@@ -652,25 +490,21 @@ export function getAgentMeta(): AgentMeta {
 }
 
 export function getActiveProviderKey(): string | null {
-  const { selectedModelId, apiKeys } = useChatStore.getState();
-  return apiKeys[getModel(selectedModelId).provider] ?? null;
-}
-
-export function hasKeyForModel(modelId: ModelId): boolean {
-  const { apiKeys } = useChatStore.getState();
-  const provider = getModel(modelId).provider;
-  return providerNeedsKey(provider) ? !!apiKeys[provider] : true;
-}
-
-export function getOrCreateChat(sessionId: string): Chat<UIMessage> {
-  const existing = chats.get(sessionId);
-  if (existing) {
-    touchChat(sessionId, existing);
-    return existing;
+  const { selectedModelId, apiKeys, customEndpointKeys } = useChatStore.getState();
+  if (isCompatModelId(selectedModelId)) {
+    const eid = endpointIdFromCompatModel(selectedModelId);
+    return customEndpointKeys[eid] ?? null;
   }
-  const c = makeChat(sessionId);
-  touchChat(sessionId, c);
-  return c;
+  return apiKeys[getModel(selectedModelId as ModelId).provider] ?? null;
+}
+
+export function hasKeyForModel(modelId: string): boolean {
+  const { apiKeys } = useChatStore.getState();
+  if (isCompatModelId(modelId)) {
+    return true;
+  }
+  const provider = getModel(modelId as ModelId).provider;
+  return providerNeedsKey(provider) ? !!apiKeys[provider] : true;
 }
 
 export function getChat(sessionId?: string): Chat<UIMessage> | undefined {
@@ -679,20 +513,8 @@ export function getChat(sessionId?: string): Chat<UIMessage> | undefined {
   return id ? chats.get(id) : undefined;
 }
 
-export async function sendMessage(text: string): Promise<boolean> {
-  const state = useChatStore.getState();
-  const sessionId = state.activeSessionId;
-  if (!sessionId) return false;
-  if (providerNeedsKey(getModel(state.selectedModelId).provider) && !getActiveProviderKey()) return false;
-  const c = getOrCreateChat(sessionId);
-  await c.sendMessage({ text });
-  return true;
-}
-
 export function stop(): void {
   const id = useChatStore.getState().activeSessionId;
   if (!id) return;
   void chats.get(id)?.stop();
 }
-
-export { respondToCodexApproval };

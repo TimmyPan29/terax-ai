@@ -3,6 +3,7 @@ import { z } from "zod";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { runSubagent } from "../agents/runSubagent";
 import { SUBAGENTS, type SubagentType } from "../agents/registry";
+import type { ModelId } from "../config";
 import { useChatStore } from "../store/chatStore";
 import type { ToolContext } from "./context";
 
@@ -38,7 +39,7 @@ Most types are read-only and auto-execute. The 'executor' type writes files and 
             type,
             prompt,
             keys: apiKeys,
-            modelId: selectedModelId,
+            modelId: selectedModelId as ModelId,
             modelOverride: prefs.subagentModelOverrides[type],
             toolContext: ctx,
             local: {

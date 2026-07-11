@@ -7,11 +7,10 @@ import { resolvePath } from "../tools/tools";
 import { applyUnifiedPatch } from "@/modules/ai/codex/patch";
 import {
   flushPersist,
-  getOrCreateChat,
-  respondToCodexApproval,
   useChatStore,
   type AgentRunStatus,
 } from "../store/chatStore";
+import { getOrCreateChat, respondToCodexApproval } from "../store/chatRuntime";
 
 /**
  * Headless bridge that mirrors chat lifecycle into the store, so the status

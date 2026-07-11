@@ -1,7 +1,8 @@
 import type { UIMessage } from "@ai-sdk/react";
-import { type ModelId } from "../config";
+import type { CustomEndpoint } from "../config";
 import { runAgentStream, type AgentUsageDelta } from "./agent";
-import type { ProviderKeys } from "./keyring";
+import type { ProviderKeys, CustomEndpointKeys } from "./keyring";
+import { formatAiError } from "./errors";
 import { native } from "./native";
 import type { ToolContext } from "../tools/tools";
 
@@ -42,7 +43,7 @@ type LiveSnapshot = {
 type Deps = {
   getKeys: () => ProviderKeys;
   toolContext: ToolContext;
-  getModelId: () => ModelId;
+  getModelId: () => string;
   getCustomInstructions: () => string;
   getAgentPersona: () => { name: string; instructions: string } | null;
   getLive: () => LiveSnapshot;
@@ -56,6 +57,8 @@ type Deps = {
   getOpenaiCompatibleModelId?: () => string | undefined;
   getOpenaiCompatibleContextLimit?: () => number | undefined;
   getOpenrouterModelId?: () => string | undefined;
+  getCustomEndpoints?: () => readonly CustomEndpoint[];
+  getCustomEndpointKeys?: () => CustomEndpointKeys;
   onStep?: (step: string | null) => void;
   onUsage?: (delta: AgentUsageDelta) => void;
   onCompact?: (info: { droppedCount: number }) => void;
@@ -98,6 +101,8 @@ export function createContextAwareTransport(deps: Deps) {
       openaiCompatibleModelId: deps.getOpenaiCompatibleModelId?.(),
       openaiCompatibleContextLimit: deps.getOpenaiCompatibleContextLimit?.(),
       openrouterModelId: deps.getOpenrouterModelId?.(),
+      customEndpoints: deps.getCustomEndpoints?.(),
+      customEndpointKeys: deps.getCustomEndpointKeys?.(),
       planMode: deps.getPlanMode?.(),
       thinkingEnabled: deps.getThinking?.(),
       projectMemory,
@@ -106,6 +111,7 @@ export function createContextAwareTransport(deps: Deps) {
     });
     return result.toUIMessageStream({
       originalMessages: options.messages,
+      onError: formatAiError,
     });
   };
 

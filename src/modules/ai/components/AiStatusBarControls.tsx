@@ -42,13 +42,16 @@ import {
   Tick01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { motion } from "motion/react";
 import { useMemo, useRef, useState } from "react";
 import {
+  compatModelIdForEndpoint,
+  getCompatModelInfo,
   getModel,
+  isCompatModelId,
   MODELS,
   providerNeedsKey,
   PROVIDERS,
+  STT_PROVIDER_LABELS,
   type ModelCapabilities,
   type ModelId,
   type ModelInfo,
@@ -81,27 +84,26 @@ const PROVIDER_ICON = {
 
 export function AiOpenButton({ onOpen }: { onOpen: () => void }) {
   return (
-    <motion.button
-      initial={{ y: -15 }}
-      animate={{ y: 0 }}
+    <button
       type="button"
       onClick={onOpen}
       className={cn(
         "flex h-6 items-center gap-1.5 rounded-md border border-border/60 bg-card px-2 text-xs",
         "text-muted-foreground transition-colors hover:border-border hover:bg-accent hover:text-foreground",
+        "animate-in slide-in-from-top-2 duration-200 ease-out",
       )}
       title="Open AI agent"
     >
       <span>Open AI agent</span>
       <Kbd className="h-4 min-w-4 px-1">{fmtShortcut(MOD_KEY, "I")}</Kbd>
-    </motion.button>
+    </button>
   );
 }
 
 export function AiStatusBarControls() {
   const c = useComposer();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const openMini = useChatStore((s) => s.openMini);
+  const toggleMini = useChatStore((s) => s.toggleMini);
   const miniOpen = useChatStore((s) => s.mini.open);
   const closePanel = useChatStore((s) => s.closePanel);
 
@@ -131,7 +133,7 @@ export function AiStatusBarControls() {
         <IconBtn
           title={
             !c.voice.hasKey
-              ? "Voice needs an OpenAI key"
+              ? `Voice needs a ${STT_PROVIDER_LABELS[c.voice.sttProvider]} key`
               : c.voice.recording
                 ? "Stop & transcribe"
                 : c.voice.transcribing
@@ -173,9 +175,8 @@ export function AiStatusBarControls() {
         </Kbd>
       </Button>
       <IconBtn
-        title={miniOpen ? "Mini-window open" : "Open conversation"}
-        onClick={openMini}
-        disabled={miniOpen}
+        title={`${miniOpen ? "Close" : "Open"} AI chat window (${fmtShortcut("⇧", MOD_KEY, "I")})`}
+        onClick={toggleMini}
       >
         <HugeiconsIcon icon={Message01Icon} size={13} strokeWidth={1.75} />
       </IconBtn>
@@ -217,14 +218,18 @@ function ModelDropdown() {
   const setSelected = useChatStore((s) => s.setSelectedModelId);
   const favoriteIds = usePreferencesStore((s) => s.favoriteModelIds);
   const recentIds = usePreferencesStore((s) => s.recentModelIds);
-  const current = getModel(selected);
+  const customEndpoints = usePreferencesStore((s) => s.customEndpoints);
+  const current = isCompatModelId(selected)
+    ? getCompatModelInfo(selected, customEndpoints)
+    : getModel(selected as ModelId);
   const codexConnected = useCodexStore((s) => s.phase === "connected");
   const [search, setSearch] = useState("");
-  const [activeProvider, setActiveProvider] = useState<ProviderId | null>(null);
+  const [activeProvider, setActiveProvider] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("all");
   const inputRef = useRef<HTMLInputElement>(null);
-  const currentProviderHasKey =
-    current.provider === "openai-account"
+  const currentProviderHasKey = isCompatModelId(selected)
+    ? true
+    : current.provider === "openai-account"
       ? codexConnected
       : providerNeedsKey(current.provider)
         ? !!apiKeys[current.provider]
@@ -237,19 +242,33 @@ function ModelDropdown() {
         ? !!apiKeys[id]
         : true;
 
+  const epModelInfos = useMemo(() => {
+    return customEndpoints.map((ep) =>
+      getCompatModelInfo(compatModelIdForEndpoint(ep.id), customEndpoints),
+    );
+  }, [customEndpoints]);
+
   const sortedProviders = useMemo(() => {
     const configured: (typeof PROVIDERS)[number][] = [];
     const unconfigured: (typeof PROVIDERS)[number][] = [];
     for (const p of PROVIDERS) {
+      if (p.id === "openai-compatible") continue;
       (hasKeyFor(p.id) ? configured : unconfigured).push(p);
     }
     return { configured, unconfigured };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiKeys, codexConnected]);
 
+  const allModels = useMemo(
+    () => [...MODELS, ...epModelInfos],
+    [epModelInfos],
+  );
+
+  const COMPAT_PROVIDER_ID = "__compat__";
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    let pool: readonly ModelInfo[] = MODELS;
+    let pool: readonly ModelInfo[] = allModels;
     if (tab === "favorites") {
       pool = pool.filter((m) => favoriteIds.includes(m.id));
     } else if (tab === "recent") {
@@ -259,7 +278,9 @@ function ModelDropdown() {
         .slice()
         .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
     }
-    if (activeProvider !== null) {
+    if (activeProvider === COMPAT_PROVIDER_ID) {
+      pool = pool.filter((m) => isCompatModelId(m.id));
+    } else if (activeProvider !== null) {
       pool = pool.filter((m) => m.provider === activeProvider);
     }
     if (q) {
@@ -273,7 +294,7 @@ function ModelDropdown() {
       );
     }
     return pool;
-  }, [activeProvider, favoriteIds, recentIds, search, tab]);
+  }, [activeProvider, allModels, favoriteIds, recentIds, search, tab]);
 
   return (
     <DropdownMenu>
@@ -378,15 +399,32 @@ function ModelDropdown() {
                 />
               ),
             )}
+            {customEndpoints.length > 0 && (
+              <ProviderPill
+                icon={PlugIcon}
+                title="OpenAI Compatible"
+                active={activeProvider === COMPAT_PROVIDER_ID}
+                onClick={() => setActiveProvider(COMPAT_PROVIDER_ID)}
+              />
+            )}
           </div>
 
           {/* Models list */}
           <div className="min-h-0 flex-1 overflow-y-auto py-1">
-            {activeProvider !== null ? (
-              <ProviderHeader providerId={activeProvider} />
+            {activeProvider === COMPAT_PROVIDER_ID && (
+              <div className="flex items-center gap-1.5 px-3 pt-1 pb-1.5 text-[11px] font-medium tracking-tight text-muted-foreground/90">
+                <HugeiconsIcon icon={PlugIcon} size={13} strokeWidth={1.75} />
+                <span>OpenAI Compatible</span>
+              </div>
+            )}
+            {activeProvider !== null &&
+            activeProvider !== COMPAT_PROVIDER_ID ? (
+              <ProviderHeader providerId={activeProvider as ProviderId} />
             ) : null}
-            {activeProvider !== null && !hasKeyFor(activeProvider) ? (
-              <ProviderConfigureCTA providerId={activeProvider} />
+            {activeProvider !== null &&
+            activeProvider !== COMPAT_PROVIDER_ID &&
+            !hasKeyFor(activeProvider as ProviderId) ? (
+              <ProviderConfigureCTA providerId={activeProvider as ProviderId} />
             ) : null}
             {filtered.length === 0 ? (
               <div className="flex items-center justify-center px-4 py-10 text-xs text-muted-foreground/70">
@@ -402,15 +440,18 @@ function ModelDropdown() {
                   key={m.id}
                   model={m}
                   selected={m.id === selected}
-                  hasKey={hasKeyFor(m.provider)}
+                  hasKey={
+                    isCompatModelId(m.id) ||
+                    hasKeyFor(m.provider)
+                  }
                   favorite={favoriteIds.includes(m.id)}
                   showProviderIcon={activeProvider === null}
                   onPick={() => {
-                    if (!hasKeyFor(m.provider)) {
+                    if (!isCompatModelId(m.id) && !hasKeyFor(m.provider)) {
                       void openSettingsWindow("models");
                       return;
                     }
-                    setSelected(m.id as ModelId);
+                    setSelected(m.id);
                   }}
                   onToggleFavorite={() => void toggleFavoriteModel(m.id)}
                 />
