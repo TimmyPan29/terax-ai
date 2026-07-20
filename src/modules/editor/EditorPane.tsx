@@ -29,6 +29,7 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { PdfPreviewPane } from "./PdfPreviewPaneLazy";
 import {
   inlineCompletion,
   triggerInlineCompletion,
@@ -530,11 +531,7 @@ export const EditorPane = memo(
         const assetUrl = convertFileSrc(path);
         return (
           <div className="zoom-exempt h-full min-h-0 w-full min-w-0 overflow-hidden bg-background">
-            <iframe
-              src={assetUrl}
-              className="block h-full w-full min-w-0 border-0"
-              title={path.split("/").pop()}
-            />
+            <PdfPreviewPane assetUrl={assetUrl} title={path.split("/").pop()} />
           </div>
         );
       }

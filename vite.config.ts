@@ -123,6 +123,7 @@ export default defineConfig(async ({ mode }): Promise<UserConfig> => ({
             return "codemirror";
           if (id.includes("/streamdown/") || id.includes("@streamdown/"))
             return "streamdown";
+          if (id.includes("/pdfjs-dist/")) return "pdfjs";
           if (
             id.includes("/react-dom/") ||
             id.includes("/react/") ||

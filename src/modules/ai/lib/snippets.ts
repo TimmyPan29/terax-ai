@@ -54,7 +54,7 @@ export function isValidHandle(h: string): boolean {
 export function expandSnippetTokens(
   text: string,
   snippets: readonly Snippet[],
-): { body: string; matchedSnippets: Snippet[] } {
+): { body: string; blocks: string[]; matchedSnippets: Snippet[] } {
   const byHandle = new Map(snippets.map((s) => [s.handle, s]));
   const matched = new Map<string, Snippet>();
   // (^|\s)#handle  — handle is [a-z0-9][a-z0-9-]*
@@ -66,8 +66,14 @@ export function expandSnippetTokens(
     matched.set(snip.id, snip);
     return lead;
   });
-  return { 
-    body: body.replace(/[ \t]+\n/g, "\n").trim(), 
-    matchedSnippets: Array.from(matched.values()) 
+  const matchedSnippets = Array.from(matched.values());
+  const blocks = matchedSnippets.map(
+    (snippet) =>
+      `<snippet name="${snippet.handle}">\n${snippet.content}\n</snippet>`,
+  );
+  return {
+    body: body.replace(/[ \t]+\n/g, "\n").trim(),
+    blocks,
+    matchedSnippets,
   };
 }

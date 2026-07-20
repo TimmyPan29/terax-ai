@@ -12,9 +12,21 @@
     "gzip": true
   },
   {
-    "name": "total client JS",
-    "path": ["dist/assets/*.js"],
+    "name": "total client JS excluding lazy PDF renderer",
+    "path": ["dist/assets/*.js", "!dist/assets/pdfjs-*.js"],
     "limit": "1500 KB",
     "gzip": true
+  },
+  {
+    "name": "lazy PDF renderer JS",
+    "path": ["dist/assets/pdfjs-*.js"],
+    "limit": "185 KB",
+    "gzip": true
+  },
+  {
+    "name": "PDF worker",
+    "path": ["dist/assets/pdf.worker.min-*.mjs"],
+    "limit": "1300 KB",
+    "brotli": false
   }
 ]
