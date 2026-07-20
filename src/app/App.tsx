@@ -5,7 +5,7 @@ import {
 } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { getLaunchDir } from "@/lib/launchDir";
+import { consumeLaunchFiles, getLaunchDir } from "@/lib/launchDir";
 import { quoteShellArg } from "@/lib/shellQuote";
 import { usePresence } from "@/lib/usePresence";
 import { useZoom } from "@/lib/useZoom";
@@ -45,6 +45,7 @@ import type { PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
+  shouldDisablePaneSwapShortcut,
   type ShortcutHandlers,
   type ShortcutId,
   useGlobalShortcuts,
@@ -81,6 +82,7 @@ import {
   hasLeaf,
   leafIds,
   navigateFocusedBlocks,
+  type PaneBounds,
   type TerminalPaneHandle,
   useTerminalFileDrop,
   writeToSession,
@@ -137,6 +139,7 @@ export default function App() {
     setLeafCwd,
     focusPane,
     focusNextPaneInTab,
+    swapActivePaneInDirection,
     splitActivePane,
     closeActivePane,
     closePaneByLeaf,
@@ -546,6 +549,23 @@ export default function App() {
     [openFileTab, newMarkdownTab],
   );
 
+  // "Open With" files arrive via the event (warm start) and get_launch_files
+  // (cold start, before this listener attaches). Backend already authorized
+  // each parent; openFileTab dedupes by path, so both paths can't double-open.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    const openAll = (paths: string[]) => {
+      for (const path of paths) handleOpenFile(path, true);
+    };
+    (async () => {
+      unlisten = await listen<string[]>("terax:open-file", (e) => {
+        openAll(e.payload);
+      });
+      openAll(await consumeLaunchFiles());
+    })();
+    return () => unlisten?.();
+  }, [handleOpenFile]);
+
   const handlePathRenamed = useCallback(
     (from: string, to: string) => {
       for (const t of tabs) {
@@ -631,6 +651,28 @@ export default function App() {
     [activeId, splitActivePane],
   );
 
+  const livePaneBounds = useCallback((tabId: number): PaneBounds[] => {
+    const tab = document.querySelector<HTMLElement>(
+      `[data-terminal-tab="${tabId}"]`,
+    );
+    if (!tab) return [];
+    return [...tab.querySelectorAll<HTMLElement>("[data-pane-leaf]")].flatMap(
+      (element) => {
+        const id = Number(element.dataset.paneLeaf);
+        if (!Number.isFinite(id)) return [];
+        const { left, right, top, bottom } = element.getBoundingClientRect();
+        return [{ id, left, right, top, bottom }];
+      },
+    );
+  }, []);
+
+  const swapActivePane = useCallback(
+    (direction: "left" | "right" | "up" | "down") => {
+      swapActivePaneInDirection(activeId, direction, livePaneBounds(activeId));
+    },
+    [activeId, livePaneBounds, swapActivePaneInDirection],
+  );
+
   const handleCloseTabOrPane = useCallback(() => {
     const t = tabsRef.current.find((x) => x.id === activeId);
     if (t?.kind === "terminal" && leafIds(t.paneTree).length > 1) {
@@ -680,6 +722,10 @@ export default function App() {
       "pane.splitDown": () => splitActivePaneInActiveTab("col"),
       "pane.focusNext": () => focusNextPaneInTab(activeId, 1),
       "pane.focusPrev": () => focusNextPaneInTab(activeId, -1),
+      "pane.swapLeft": () => swapActivePane("left"),
+      "pane.swapRight": () => swapActivePane("right"),
+      "pane.swapUp": () => swapActivePane("up"),
+      "pane.swapDown": () => swapActivePane("down"),
       "pane.source": toggleSourceControl,
       "terminal.clear": () => {
         clearFocusedTerminal();
@@ -739,6 +785,7 @@ export default function App() {
       selectByIndex,
       splitActivePaneInActiveTab,
       focusNextPaneInTab,
+      swapActivePane,
       toggleSourceControl,
       hasComposer,
       togglePanelAndFocus,
@@ -757,6 +804,11 @@ export default function App() {
 
   const shortcutsDisabled = useCallback(
     (id: ShortcutId, e: KeyboardEvent) => {
+      const terminalPaneCount =
+        activeTab?.kind === "terminal"
+          ? leafIds(activeTab.paneTree).length
+          : null;
+      if (shouldDisablePaneSwapShortcut(id, terminalPaneCount)) return true;
       if (
         id === "editor.undo" ||
         id === "editor.redo" ||
@@ -1290,6 +1342,7 @@ export default function App() {
               onCd={sendCd}
               onWorkspaceChange={handleWorkspaceChange}
               onOpenMini={openMini}
+              onOpenAi={togglePanelAndFocus}
               hasComposer={hasComposer}
               privateActive={
                 activeTab?.kind === "terminal" && activeTab.private === true
