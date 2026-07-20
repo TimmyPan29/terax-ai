@@ -9,6 +9,8 @@ const pdfBranch =
   src.match(/if \(isPdf\) \{([\s\S]*?)\n {6}\}\n\n {6}if \(isImage/)?.[1] ?? "";
 const pdfContainerClass =
   pdfBranch.match(/<div className="([^"]+)">/)?.[1] ?? "";
+const pdfIframeClass =
+  pdfBranch.match(/<iframe[\s\S]*?className="([^"]+)"/)?.[1] ?? "";
 
 describe("EditorPane PDF preview layout", () => {
   it("uses a dedicated PDF branch", () => {
@@ -30,11 +32,11 @@ describe("EditorPane PDF preview layout", () => {
     );
   });
 
-  it("uses the lazy PDF.js preview instead of the native iframe", () => {
-    expect(pdfBranch).toContain("<PdfPreviewPane");
-    expect(pdfBranch).not.toContain("<iframe");
-    expect(src).toMatch(
-      /import \{ PdfPreviewPane \} from "\.\/PdfPreviewPaneLazy"/,
-    );
+  it("keeps the native PDF iframe inside the available width", () => {
+    expect(pdfIframeClass).toContain("block");
+    expect(pdfIframeClass).toContain("h-full");
+    expect(pdfIframeClass).toContain("w-full");
+    expect(pdfIframeClass).toContain("min-w-0");
+    expect(pdfIframeClass).toContain("border-0");
   });
 });

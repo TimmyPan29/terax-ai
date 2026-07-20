@@ -24,7 +24,6 @@ export const DEFAULT_WATCH = [
   "motion",
   "@xterm",
   "xterm",
-  "pdfjs-dist",
 ];
 
 const exts = ["", ".ts", ".tsx", ".js", ".jsx", ".mjs"];
