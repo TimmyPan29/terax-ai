@@ -1,6 +1,6 @@
 pub mod modules;
 
-use modules::{agent, codex, fs, git, history, lsp, net, pty, secrets, shell, workspace};
+use modules::{agent, codex, control, fs, git, history, lsp, net, pty, secrets, shell, workspace};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
@@ -175,12 +175,18 @@ pub fn run() {
     let launch = parse_launch_target();
     let cli_dir = launch.dir.clone();
     workspace::init_launch_cwd(cli_dir.as_deref());
+    let control_state = control::ControlState::default();
+    let control_for_setup = control_state.clone();
 
     let builder = tauri::Builder::default();
     #[cfg(target_os = "linux")]
     let builder = builder.plugin(tauri_plugin_clipboard_manager::init());
     builder
-        .setup(|app| {
+        .setup(move |app| {
+            if let Err(error) = control::start(app.handle().clone(), control_for_setup.clone()) {
+                log::warn!("could not start Terax control server: {error}");
+            }
+
             // Build the default menu structure
             let menu = tauri::menu::Menu::default(app.handle())?;
 
@@ -300,6 +306,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .manage(pty::PtyState::default())
+        .manage(control_state)
         .manage(shell::ShellState::default())
         .manage(codex::CodexState::default())
         .manage(secrets::SecretsState::default())
@@ -383,6 +390,8 @@ pub fn run() {
             workspace::wsl_home,
             workspace::workspace_authorize,
             workspace::workspace_current_dir,
+            control::control_frontend_ready,
+            control::control_respond,
             get_launch_dir,
             get_launch_files,
             open_settings_window,
@@ -414,6 +423,9 @@ pub fn run() {
                 tauri::RunEvent::Exit => {
                     if let Some(state) = app.try_state::<lsp::LspState>() {
                         state.kill_all();
+                    }
+                    if let Some(state) = app.try_state::<control::ControlState>() {
+                        state.shutdown();
                     }
                 }
                 // macOS delivers "Open With" files here, not as argv (cold and

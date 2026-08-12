@@ -1,5 +1,7 @@
 minimumReleaseAge: 4320
 minimumReleaseAgeStrict: true
+overrides:
+  react-grab: 0.1.48
 onlyBuiltDependencies:
   - esbuild
   - msw

@@ -1,5 +1,9 @@
 import { isMarkdownPath } from "@/lib/utils";
 import {
+  createAgentPanePlan,
+  type AgentInstanceCount,
+} from "@/modules/agents/lib/launcher";
+import {
   findLeafCwd,
   hasLeaf,
   leafIds,
@@ -93,6 +97,7 @@ export type GitDiffTab = TabBase & {
   repoRoot: string;
   mode: "-" | "+";
   originalPath: string | null;
+  preview: boolean;
 };
 
 export type GitHistoryTab = TabBase & {
@@ -134,6 +139,129 @@ export type TabPatch = Partial<{
   customTitle: string;
   overrideLanguage: string | null;
 }>;
+
+export type GitDiffOpenInput = {
+  path: string;
+  repoRoot: string;
+  mode: "-" | "+";
+  originalPath?: string | null;
+  title?: string;
+};
+
+export type OpenFileTabOptions = {
+  spaceId?: string;
+  activate?: boolean;
+};
+
+export function planMarkdownTabOpen(
+  tabs: Tab[],
+  path: string,
+  spaceId: string,
+  allocId: () => number,
+): { tabs: Tab[]; tabId: number } {
+  const pathKey = path.replace(/\\/g, "/");
+  const existing = tabs.find(
+    (tab) =>
+      tab.kind === "markdown" &&
+      tab.spaceId === spaceId &&
+      tab.path.replace(/\\/g, "/") === pathKey,
+  );
+  if (existing) return { tabs, tabId: existing.id };
+
+  const tabId = allocId();
+  return {
+    tabs: [
+      ...tabs,
+      {
+        id: tabId,
+        kind: "markdown",
+        spaceId,
+        title: basename(path),
+        path,
+      },
+    ],
+    tabId,
+  };
+}
+
+export function planFileTabOpen(
+  tabs: Tab[],
+  path: string,
+  pin: boolean,
+  spaceId: string,
+  allocId: () => number,
+): { tabs: Tab[]; tabId: number } {
+  if (pin) {
+    const existing = tabs.find(
+      (tab) =>
+        tab.kind === "editor" && tab.spaceId === spaceId && tab.path === path,
+    );
+    if (existing?.kind === "editor") {
+      return {
+        tabs: existing.preview
+          ? tabs.map((tab) =>
+              tab.id === existing.id ? { ...tab, preview: false } : tab,
+            )
+          : tabs,
+        tabId: existing.id,
+      };
+    }
+
+    const tabId = allocId();
+    return {
+      tabs: [
+        ...tabs,
+        {
+          id: tabId,
+          kind: "editor",
+          spaceId,
+          title: basename(path),
+          path,
+          dirty: false,
+          preview: false,
+        },
+      ],
+      tabId,
+    };
+  }
+
+  const persistent = tabs.find(
+    (tab) =>
+      tab.kind === "editor" &&
+      tab.spaceId === spaceId &&
+      tab.path === path &&
+      !tab.preview,
+  );
+  if (persistent) return { tabs, tabId: persistent.id };
+
+  const existingPreview = tabs.find(
+    (tab) =>
+      tab.kind === "editor" &&
+      tab.spaceId === spaceId &&
+      tab.path === path &&
+      tab.preview,
+  );
+  if (existingPreview) return { tabs, tabId: existingPreview.id };
+
+  const previewIndex = tabs.findIndex(
+    (tab) => tab.kind === "editor" && tab.spaceId === spaceId && tab.preview,
+  );
+  const tabId = allocId();
+  const tab: EditorTab = {
+    id: tabId,
+    kind: "editor",
+    spaceId,
+    title: basename(path),
+    path,
+    dirty: false,
+    preview: true,
+  };
+  if (previewIndex === -1) return { tabs: [...tabs, tab], tabId };
+
+  const next = [...tabs];
+  next[previewIndex] = tab;
+  return { tabs: next, tabId };
+}
 
 function basename(path: string): string {
   const parts = path.split(/[\\/]/).filter(Boolean);
@@ -195,6 +323,111 @@ export function reorderTabsByGap(
   const insertIdx = spaceTarget > spaceFrom ? anchorIdx + 1 : anchorIdx;
   next.splice(insertIdx, 0, moved);
   return next;
+}
+
+export function planGitDiffOpen(
+  tabs: Tab[],
+  input: GitDiffOpenInput,
+  spaceId: string,
+  pin: boolean,
+  allocId: () => number,
+): { tabs: Tab[]; targetId: number } {
+  const title = input.title ?? `${basename(input.path)} (${input.mode})`;
+  const originalPath = input.originalPath ?? null;
+  const matches = (tab: Tab): tab is GitDiffTab =>
+    tab.kind === "git-diff" &&
+    tab.spaceId === spaceId &&
+    tab.repoRoot === input.repoRoot &&
+    tab.path === input.path &&
+    tab.mode === input.mode;
+  const matchingTabs = tabs.filter(matches);
+  const existing =
+    matchingTabs.find((tab) => !tab.preview) ?? matchingTabs[0];
+
+  if (existing) {
+    const preview = pin ? false : existing.preview;
+    if (
+      existing.title === title &&
+      existing.originalPath === originalPath &&
+      existing.preview === preview
+    ) {
+      return { tabs, targetId: existing.id };
+    }
+    return {
+      tabs: tabs.map((tab) =>
+        tab.id === existing.id
+          ? { ...existing, title, originalPath, preview }
+          : tab,
+      ),
+      targetId: existing.id,
+    };
+  }
+
+  const id = allocId();
+  const tab = {
+    id,
+    kind: "git-diff",
+    spaceId,
+    title,
+    path: input.path,
+    repoRoot: input.repoRoot,
+    mode: input.mode,
+    originalPath,
+    preview: !pin,
+  } satisfies GitDiffTab;
+
+  if (pin) return { tabs: [...tabs, tab], targetId: id };
+
+  const previewIndex = tabs.findIndex(
+    (candidate) =>
+      candidate.kind === "git-diff" &&
+      candidate.spaceId === spaceId &&
+      candidate.preview,
+  );
+  if (previewIndex === -1) return { tabs: [...tabs, tab], targetId: id };
+
+  const next = [...tabs];
+  next[previewIndex] = tab;
+  return { tabs: next, targetId: id };
+}
+
+export function planCommitHistoryOpen(
+  tabs: Tab[],
+  input: { repoRoot: string; branch?: string | null },
+  spaceId: string,
+  allocId: () => number,
+): { tabs: Tab[]; targetId: number } {
+  const existing = tabs.find(
+    (tab) =>
+      tab.kind === "git-history" &&
+      tab.spaceId === spaceId &&
+      tab.repoRoot === input.repoRoot,
+  );
+  const title = input.branch ? `History · ${input.branch}` : "Git History";
+  if (existing) {
+    if (existing.title === title) return { tabs, targetId: existing.id };
+    return {
+      tabs: tabs.map((tab) =>
+        tab.id === existing.id ? { ...existing, title } : tab,
+      ),
+      targetId: existing.id,
+    };
+  }
+
+  const id = allocId();
+  return {
+    tabs: [
+      ...tabs,
+      {
+        id,
+        kind: "git-history",
+        spaceId,
+        title,
+        repoRoot: input.repoRoot,
+      } satisfies GitHistoryTab,
+    ],
+    targetId: id,
+  };
 }
 
 function coldTerminalTab(
@@ -297,6 +530,8 @@ export function useTabs(initial?: Partial<TerminalTab>) {
 
   const replaceTabs = useCallback((next: Tab[], nextActiveId: number) => {
     if (next.length === 0) return;
+    tabsRef.current = next;
+    activeIdRef.current = nextActiveId;
     setTabs(next);
     setActiveId(nextActiveId);
   }, []);
@@ -446,24 +681,40 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     ).__teraxNewBlockTab = newBlockTab;
   }, [newBlockTab]);
 
-  const newAgentTab = useCallback((cwd: string | undefined, title: string) => {
-    const tabId = nextIdRef.current++;
-    const leafId = nextIdRef.current++;
-    setTabs((t) => [
-      ...t,
-      {
-        id: tabId,
-        kind: "terminal",
-        spaceId: activeSpaceIdRef.current,
-        title,
+  const newAgentGroupTab = useCallback(
+    (cwd: string | undefined, title: string, instances: AgentInstanceCount) => {
+      const tabId = nextIdRef.current++;
+      const { paneTree, leafIds: agentLeafIds } = createAgentPanePlan(
+        instances,
+        () => nextIdRef.current++,
         cwd,
-        paneTree: { kind: "leaf", id: leafId, cwd },
-        activeLeafId: leafId,
-      },
-    ]);
-    setActiveId(tabId);
-    return { tabId, leafId };
-  }, []);
+      );
+      setTabs((t) => [
+        ...t,
+        {
+          id: tabId,
+          kind: "terminal",
+          spaceId: activeSpaceIdRef.current,
+          title,
+          customTitle: title,
+          cwd,
+          paneTree,
+          activeLeafId: agentLeafIds[0],
+        },
+      ]);
+      setActiveId(tabId);
+      return { tabId, leafIds: agentLeafIds };
+    },
+    [],
+  );
+
+  const newAgentTab = useCallback(
+    (cwd: string | undefined, title: string) => {
+      const { tabId, leafIds: agentLeafIds } = newAgentGroupTab(cwd, title, 1);
+      return { tabId, leafId: agentLeafIds[0] };
+    },
+    [newAgentGroupTab],
+  );
 
   const newPrivateTab = useCallback((cwd?: string) => {
     const tabId = nextIdRef.current++;
@@ -495,90 +746,38 @@ export function useTabs(initial?: Partial<TerminalTab>) {
    *   reused: if a persistent tab for the path already exists it is activated;
    *   otherwise the current preview slot is replaced with the new path.
    */
-  const openFileTab = useCallback((path: string, pin = true) => {
-    let targetId: number | null = null;
-    setTabs((curr) => {
-      if (pin) {
-        // Persistent open: find any existing editor tab, pin it if needed.
-        const existing = curr.find(
-          (t) => t.kind === "editor" && t.path === path,
-        );
-        if (existing) {
-          targetId = existing.id;
-          if ((existing as EditorTab).preview) {
-            return curr.map((t) =>
-              t.id === existing.id ? { ...t, preview: false } : t,
-            );
-          }
-          return curr;
-        }
-        const id = nextIdRef.current++;
-        targetId = id;
-        return [
-          ...curr,
-          {
-            id,
-            kind: "editor",
-            spaceId: activeSpaceIdRef.current,
-            title: basename(path),
-            path,
-            dirty: false,
-            preview: false,
-          } satisfies EditorTab,
-        ];
-      } else {
-        // Preview open: persistent tab for this path takes priority.
-        const persistent = curr.find(
-          (t) =>
-            t.kind === "editor" && t.path === path && !(t as EditorTab).preview,
-        );
-        if (persistent) {
-          targetId = persistent.id;
-          return curr;
-        }
-        // Reuse the slot if it already shows the same path.
-        const existingPreview = curr.find(
-          (t) =>
-            t.kind === "editor" && t.path === path && (t as EditorTab).preview,
-        );
-        if (existingPreview) {
-          targetId = existingPreview.id;
-          return curr;
-        }
-        // Replace the current preview slot, or append a new one.
-        const previewIdx = curr.findIndex(
-          (t) => t.kind === "editor" && (t as EditorTab).preview,
-        );
-        const id = nextIdRef.current++;
-        targetId = id;
-        const tab: EditorTab = {
-          id,
-          kind: "editor",
-          spaceId: activeSpaceIdRef.current,
-          title: basename(path),
-          path,
-          dirty: false,
-          preview: true,
-        };
-        if (previewIdx === -1) return [...curr, tab];
-        const next = [...curr];
-        next[previewIdx] = tab;
-        return next;
-      }
-    });
-    if (targetId !== null) setActiveId(targetId);
-    return targetId as number | null;
-  }, []);
+  const openFileTab = useCallback(
+    (path: string, pin = true, options: OpenFileTabOptions = {}) => {
+      const targetSpaceId = options.spaceId ?? activeSpaceIdRef.current;
+      const activate = options.activate ?? true;
+      const plan = planFileTabOpen(
+        tabsRef.current,
+        path,
+        pin,
+        targetSpaceId,
+        () => nextIdRef.current++,
+      );
+      tabsRef.current = plan.tabs;
+      setTabs(plan.tabs);
+      if (activate) setActiveId(plan.tabId);
+      return plan.tabId;
+    },
+    [],
+  );
 
   /**
    * Promotes a preview tab to a persistent one. Called on double-click of the
-   * tab title in the tab bar. Dirty edits also auto-promote (see `updateTab`).
+   * tab title in the tab bar. Dirty editor tabs also auto-promote.
    */
   const pinTab = useCallback((id: number) => {
     setTabs((curr) =>
-      curr.map((t) =>
-        t.id === id && t.kind === "editor" ? { ...t, preview: false } : t,
-      ),
+      curr.map((t) => {
+        if (t.id !== id) return t;
+        if ((t.kind === "editor" || t.kind === "git-diff") && t.preview) {
+          return { ...t, preview: false };
+        }
+        return t;
+      }),
     );
   }, []);
 
@@ -673,31 +872,24 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     return id;
   }, []);
 
+  // Mirrors tabsRef like openFileTab instead of using a functional update: a
+  // batch that opens a markdown file before a regular one (multi-file "Open
+  // With") would otherwise have the queued markdown update clobbered by
+  // openFileTab's setTabs(plan.tabs), which is built from the stale ref.
   const newMarkdownTab = useCallback((path: string) => {
-    let targetId: number | null = null;
-    setTabs((curr) => {
-      const existing = curr.find(
-        (t) => t.kind === "markdown" && t.path === path,
-      );
-      if (existing) {
-        targetId = existing.id;
-        return curr;
-      }
-      const id = nextIdRef.current++;
-      targetId = id;
-      return [
-        ...curr,
-        {
-          id,
-          kind: "markdown",
-          spaceId: activeSpaceIdRef.current,
-          title: basename(path),
-          path,
-        },
-      ];
-    });
-    if (targetId !== null) setActiveId(targetId);
-    return targetId;
+    const curr = tabsRef.current;
+    const plan = planMarkdownTabOpen(
+      curr,
+      path,
+      activeSpaceIdRef.current,
+      () => nextIdRef.current++,
+    );
+    if (plan.tabs !== curr) {
+      tabsRef.current = plan.tabs;
+      setTabs(plan.tabs);
+    }
+    setActiveId(plan.tabId);
+    return plan.tabId;
   }, []);
 
   const setOverrideLanguage = useCallback((id: number, lang: string | null) => {
@@ -752,55 +944,21 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   );
 
   const openGitDiffTab = useCallback(
-    (input: {
-      path: string;
-      repoRoot: string;
-      mode: "-" | "+";
-      originalPath?: string | null;
-      title?: string;
-    }) => {
+    (input: GitDiffOpenInput, pin = false) => {
       const curr = tabsRef.current;
-      const existing = curr.find(
-        (t) =>
-          t.kind === "git-diff" &&
-          t.repoRoot === input.repoRoot &&
-          t.path === input.path &&
-          t.mode === input.mode,
+      const plan = planGitDiffOpen(
+        curr,
+        input,
+        activeSpaceIdRef.current,
+        pin,
+        () => nextIdRef.current++,
       );
-      const computedTitle =
-        input.title ?? `${basename(input.path)} (${input.mode})`;
-      const originalPath = input.originalPath ?? null;
-
-      if (existing) {
-        const nextTabs = curr.map((t) =>
-          t.id === existing.id
-            ? { ...t, title: computedTitle, originalPath }
-            : t,
-        );
-        tabsRef.current = nextTabs;
-        setTabs(nextTabs);
-        setActiveId(existing.id);
-        return existing.id;
+      if (plan.tabs !== curr) {
+        tabsRef.current = plan.tabs;
+        setTabs(plan.tabs);
       }
-
-      const id = nextIdRef.current++;
-      const nextTabs = [
-        ...curr,
-        {
-          id,
-          kind: "git-diff",
-          spaceId: activeSpaceIdRef.current,
-          title: computedTitle,
-          path: input.path,
-          repoRoot: input.repoRoot,
-          mode: input.mode,
-          originalPath,
-        } satisfies GitDiffTab,
-      ];
-      tabsRef.current = nextTabs;
-      setTabs(nextTabs);
-      setActiveId(id);
-      return id;
+      setActiveId(plan.targetId);
+      return plan.targetId;
     },
     [],
   );
@@ -808,34 +966,18 @@ export function useTabs(initial?: Partial<TerminalTab>) {
   const openCommitHistoryTab = useCallback(
     (input: { repoRoot: string; branch?: string | null }) => {
       const curr = tabsRef.current;
-      const existing = curr.find(
-        (t) => t.kind === "git-history" && t.repoRoot === input.repoRoot,
+      const plan = planCommitHistoryOpen(
+        curr,
+        input,
+        activeSpaceIdRef.current,
+        () => nextIdRef.current++,
       );
-      const title = input.branch ? `History · ${input.branch}` : "Git History";
-      if (existing) {
-        const nextTabs = curr.map((t) =>
-          t.id === existing.id ? { ...t, title } : t,
-        );
-        tabsRef.current = nextTabs;
-        setTabs(nextTabs);
-        setActiveId(existing.id);
-        return existing.id;
+      if (plan.tabs !== curr) {
+        tabsRef.current = plan.tabs;
+        setTabs(plan.tabs);
       }
-      const id = nextIdRef.current++;
-      const nextTabs = [
-        ...curr,
-        {
-          id,
-          kind: "git-history",
-          spaceId: activeSpaceIdRef.current,
-          title,
-          repoRoot: input.repoRoot,
-        } satisfies GitHistoryTab,
-      ];
-      tabsRef.current = nextTabs;
-      setTabs(nextTabs);
-      setActiveId(id);
-      return id;
+      setActiveId(plan.targetId);
+      return plan.targetId;
     },
     [],
   );
@@ -1164,6 +1306,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     activeId,
     setActiveId,
     allocId,
+    booted,
     replaceTabs,
     moveTabToSpace,
     reorderTab,
@@ -1176,6 +1319,7 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     newTab,
     newBlockTab,
     newAgentTab,
+    newAgentGroupTab,
     newPrivateTab,
     openFileTab,
     pinTab,

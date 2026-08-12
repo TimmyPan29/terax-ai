@@ -1,7 +1,8 @@
 import { resolveFontFamily } from "@/lib/fonts";
+import { openExternalUrl } from "@/lib/external-link";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import type { TerminalCursorStyle } from "@/modules/settings/store";
 import { buildTerminalTheme } from "@/styles/terminalTheme";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -13,11 +14,9 @@ import {
   readTerminalClipboard,
   writeTerminalClipboard,
 } from "./terminalClipboard";
-import {
-  terminalDeleteSequence,
-  terminalLineNavigationSequence,
-  terminalWordNavigationSequence,
-} from "./keymap";
+import { pasteIntoTerminal } from "./terminalPaste";
+import { terminalReadlineSequence } from "./keymap";
+import { createTerminalLinkHandler } from "./terminalLinks";
 
 export const POOL_MAX_SIZE = 5;
 const FIT_DEBOUNCE_MS = 8;
@@ -75,6 +74,13 @@ export type Slot = {
 const slots: Slot[] = [];
 let recyclerEl: HTMLDivElement | null = null;
 let adapter: SlotAdapter | null = null;
+let configuredFont: RendererFont | null = null;
+
+type RendererFont = {
+  fontFamily: string;
+  fontWeight: string;
+  fontSize: number;
+};
 
 let windowActive =
   typeof document === "undefined" || (!document.hidden && document.hasFocus());
@@ -145,9 +151,7 @@ export function poolSlotStats(): PoolSlotStat[] {
 // dropped path as a real paste while a plain shell gets the literal text.
 export function pasteIntoLeaf(leafId: number, text: string): boolean {
   const slot = slots.find((s) => s.currentLeafId === leafId);
-  if (!slot) return false;
-  slot.term.paste(text);
-  return true;
+  return pasteIntoTerminal(slot?.term ?? null, text);
 }
 
 function getRecycler(): HTMLDivElement {
@@ -172,14 +176,19 @@ function bgActive(
 
 function termOptions() {
   const prefs = usePreferencesStore.getState();
-  return {
+  const font = configuredFont ?? {
     fontFamily: resolveFontFamily(prefs.terminalFontFamily),
-    fontWeight: prefs.terminalFontWeight as FontWeight,
-    letterSpacing: prefs.terminalLetterSpacing,
+    fontWeight: prefs.terminalFontWeight,
     fontSize: Math.max(4, Math.round(prefs.terminalFontSize * prefs.zoomLevel)),
+  };
+  return {
+    fontFamily: font.fontFamily,
+    fontWeight: font.fontWeight as FontWeight,
+    letterSpacing: prefs.terminalLetterSpacing,
+    fontSize: font.fontSize,
     theme: buildTerminalTheme(),
     cursorBlink: false,
-    cursorStyle: "bar" as const,
+    cursorStyle: prefs.terminalCursorStyle,
     cursorInactiveStyle: "outline" as const,
     scrollback: prefs.terminalScrollback,
     allowProposedApi: true,
@@ -196,7 +205,12 @@ export function applyBackgroundActive(active: boolean): void {
 }
 
 function createSlot(): Slot {
-  const term = new Terminal(termOptions());
+  let focusTerminal = () => {};
+  const term = new Terminal({
+    ...termOptions(),
+    linkHandler: createTerminalLinkHandler(() => focusTerminal()),
+  });
+  focusTerminal = () => term.focus();
   const fitAddon = new FitAddon();
   const searchAddon = new SearchAddon();
   const serializeAddon = new SerializeAddon();
@@ -204,7 +218,9 @@ function createSlot(): Slot {
   term.loadAddon(searchAddon);
   term.loadAddon(serializeAddon);
   term.loadAddon(
-    new WebLinksAddon((_e, uri) => openUrl(uri).catch(console.error)),
+    new WebLinksAddon((_e, uri) => {
+      void openExternalUrl(uri, () => term.focus());
+    }),
   );
 
   const host = document.createElement("div");
@@ -253,24 +269,13 @@ function createSlot(): Slot {
     if (leafId === null) return false;
     const bridge = adapter?.resolveLeaf(leafId);
     if (!bridge) return true;
-    const lineNavigation = terminalLineNavigationSequence(event, {
+    const readlineSequence = terminalReadlineSequence(event, {
       isMac: IS_MAC,
+      isAlternateScreen: isAltScreen(slot),
     });
-    if (lineNavigation) {
+    if (readlineSequence) {
       event.preventDefault();
-      if (event.type === "keydown") bridge.writeToPty(lineNavigation);
-      return false;
-    }
-    const wordNavigation = terminalWordNavigationSequence(event);
-    if (wordNavigation) {
-      event.preventDefault();
-      if (event.type === "keydown") bridge.writeToPty(wordNavigation);
-      return false;
-    }
-    const deleteSeq = terminalDeleteSequence(event, { isMac: IS_MAC });
-    if (deleteSeq) {
-      event.preventDefault();
-      if (event.type === "keydown") bridge.writeToPty(deleteSeq);
+      if (event.type === "keydown") bridge.writeToPty(readlineSequence);
       return false;
     }
     if (isShiftEnter(event)) {
@@ -922,14 +927,6 @@ function refitSlot(slot: Slot): void {
     ?.resizePty(slot.term.cols, slot.term.rows);
 }
 
-export function applyFontSize(size: number): void {
-  for (const slot of slots) {
-    if (slot.term.options.fontSize === size) continue;
-    slot.term.options.fontSize = size;
-    refitSlot(slot);
-  }
-}
-
 export function applyLetterSpacing(spacing: number): void {
   for (const slot of slots) {
     if (slot.term.options.letterSpacing === spacing) continue;
@@ -938,19 +935,27 @@ export function applyLetterSpacing(spacing: number): void {
   }
 }
 
-export function applyFontFamily(family: string): void {
-  const resolved = resolveFontFamily(family);
+export function applyTerminalFont(font: RendererFont): void {
+  const next = {
+    fontFamily: resolveFontFamily(font.fontFamily),
+    fontWeight: font.fontWeight,
+    fontSize: font.fontSize,
+  };
+  configuredFont = next;
   for (const slot of slots) {
-    if (slot.term.options.fontFamily === resolved) continue;
-    slot.term.options.fontFamily = resolved;
-    refitSlot(slot);
-  }
-}
-
-export function applyFontWeight(weight: string): void {
-  for (const slot of slots) {
-    if (slot.term.options.fontWeight === weight) continue;
-    slot.term.options.fontWeight = weight as FontWeight;
+    let refit = false;
+    if (slot.term.options.fontFamily !== next.fontFamily) {
+      slot.term.options.fontFamily = next.fontFamily;
+      refit = true;
+    }
+    if (slot.term.options.fontSize !== next.fontSize) {
+      slot.term.options.fontSize = next.fontSize;
+      refit = true;
+    }
+    if (slot.term.options.fontWeight !== next.fontWeight) {
+      slot.term.options.fontWeight = next.fontWeight as FontWeight;
+    }
+    if (refit) refitSlot(slot);
   }
 }
 
@@ -987,6 +992,13 @@ export function applyCursorBlink(enabled: boolean): void {
       slot,
       adapter?.isLeafFocused(slot.currentLeafId) ?? false,
     );
+  }
+}
+
+export function applyCursorStyle(style: TerminalCursorStyle): void {
+  for (const slot of slots) {
+    if (slot.term.options.cursorStyle === style) continue;
+    slot.term.options.cursorStyle = style;
   }
 }
 

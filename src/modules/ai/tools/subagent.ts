@@ -57,17 +57,16 @@ Most types are read-only and auto-execute. The 'executor' type writes files and 
           });
           // Surface the executor's review (snapshot diff) by opening the mini
           // window when it touched files.
-          if (r.filesTouched.length > 0) openMini();
+          const filesTouched = r.filesTouched ?? [];
+          if (filesTouched.length > 0) openMini?.();
           return {
             type,
             description,
-            model: r.modelId,
+            ...(r.modelId ? { model: r.modelId } : {}),
             summary: r.summary,
             stepCount: r.stepCount,
             durationMs: r.durationMs,
-            ...(r.filesTouched.length > 0
-              ? { filesTouched: r.filesTouched }
-              : {}),
+            ...(filesTouched.length > 0 ? { filesTouched } : {}),
           };
         } catch (e) {
           return { error: String(e), type };
