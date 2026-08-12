@@ -1,17 +1,18 @@
 import { Popover, PopoverAnchor } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
-import { cn } from "@/lib/utils";
 import { usePresence } from "@/lib/usePresence";
+import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useWorkspaceFiles } from "../hooks/useWorkspaceFiles";
 import { clipboardImageFiles } from "../lib/clipboard";
 import { useComposer } from "../lib/composer";
+import { isImeCommitEnter } from "../lib/ime";
 import { SLASH_COMMANDS } from "../lib/slashCommands";
 import { useChatStore } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { FilePickerContent } from "./FilePicker";
-import { SnippetPickerContent, type PickerItem } from "./SnippetPicker";
+import { type PickerItem, SnippetPickerContent } from "./SnippetPicker";
 
 type SnippetTrigger = {
   start: number;
@@ -63,6 +64,8 @@ export function AiComposerInput() {
   const c = useComposer();
   const snippets = useSnippetsStore((s) => s.snippets);
   const workspaceRoot = useChatStore((s) => s.live.getWorkspaceRoot());
+  const composing = useRef(false);
+  const lastCompositionEnd = useRef<number | null>(null);
 
   const [trigger, setTrigger] = useState<SnippetTrigger | null>(null);
   const [fileTrigger, setFileTrigger] = useState<FileTrigger | null>(null);
@@ -224,7 +227,26 @@ export function AiComposerInput() {
               onKeyUp={updateTrigger}
               onClick={updateTrigger}
               onSelect={updateTrigger}
+              onCompositionStart={() => {
+                composing.current = true;
+              }}
+              onCompositionEnd={() => {
+                composing.current = false;
+                lastCompositionEnd.current = performance.now();
+              }}
               onKeyDown={(e) => {
+                if (
+                  isImeCommitEnter(
+                    e.nativeEvent,
+                    composing.current,
+                    lastCompositionEnd.current,
+                    performance.now(),
+                  )
+                ) {
+                  e.stopPropagation();
+                  return;
+                }
+
                 if (pickerOpen) {
                   const items = fileTrigger ? filteredFiles : filteredItems;
                   if (e.key === "ArrowDown") {

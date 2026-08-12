@@ -24,6 +24,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -72,7 +73,7 @@ export type EditorPaneHandle = {
   /** Re-read the file from disk. Skips silently if the buffer is dirty. */
   reload: () => boolean;
   /** Move the cursor to a 1-based line and center it, once content is ready. */
-  gotoLine: (line: number) => void;
+  gotoLine: (line: number, options?: { focus?: boolean }) => void;
   /** Apply CodeMirror's undo/redo commands. */
   undo: () => void;
   redo: () => void;
@@ -239,27 +240,69 @@ export const EditorPane = memo(
     const pathRef = useRef(path);
     pathRef.current = path;
 
-    const pendingLineRef = useRef<number | null>(null);
+    const pendingLineRef = useRef<{
+      path: string;
+      line: number;
+      focus: boolean;
+    } | null>(null);
+    const pendingFocusRef = useRef<string | null>(null);
     const statusRef = useRef(doc.status);
-    statusRef.current = doc.status;
+    useLayoutEffect(() => {
+      statusRef.current = doc.status;
+    }, [doc.status]);
+
+    useEffect(() => {
+      if (pendingLineRef.current?.path !== path) {
+        pendingLineRef.current = null;
+      }
+      if (pendingFocusRef.current !== path) {
+        pendingFocusRef.current = null;
+      }
+    }, [path]);
+
+    const focusWhenRendered = useCallback(
+      (view: EditorView, targetPath: string) => {
+        requestAnimationFrame(() => {
+          if (cmRef.current?.view === view && pathRef.current === targetPath) {
+            view.focus();
+          }
+        });
+      },
+      [],
+    );
 
     const applyPendingGoto = useCallback(() => {
       const view = cmRef.current?.view;
-      const line = pendingLineRef.current;
-      if (!view || line == null || statusRef.current !== "ready") return;
-      const target = Math.max(1, Math.min(line, view.state.doc.lines));
+      const pending = pendingLineRef.current;
+      if (!view || pending == null || statusRef.current !== "ready") return;
+      if (pending.path !== path) {
+        pendingLineRef.current = null;
+        return;
+      }
+      const target = Math.max(1, Math.min(pending.line, view.state.doc.lines));
       const at = view.state.doc.line(target).from;
       view.dispatch({
         selection: { anchor: at },
         effects: EditorView.scrollIntoView(at, { y: "center" }),
       });
-      view.focus();
+      if (pending.focus) focusWhenRendered(view, pending.path);
       pendingLineRef.current = null;
-    }, []);
+    }, [focusWhenRendered, path]);
+
+    const applyPendingFocus = useCallback(() => {
+      const view = cmRef.current?.view;
+      const pendingPath = pendingFocusRef.current;
+      if (!view || pendingPath === null || statusRef.current !== "ready")
+        return;
+      pendingFocusRef.current = null;
+      if (pendingPath === path) focusWhenRendered(view, pendingPath);
+    }, [focusWhenRendered, path]);
 
     useEffect(() => {
-      if (doc.status === "ready") applyPendingGoto();
-    }, [doc.status, applyPendingGoto]);
+      if (doc.status !== "ready") return;
+      applyPendingGoto();
+      applyPendingFocus();
+    }, [doc.status, applyPendingFocus, applyPendingGoto]);
 
     const extensions = useMemo(
       () => [
@@ -460,7 +503,8 @@ export const EditorPane = memo(
           if (view) openSearchPanel(view);
         },
         focus: () => {
-          cmRef.current?.view?.focus();
+          pendingFocusRef.current = path;
+          applyPendingFocus();
         },
         getSelection: () => {
           const view = cmRef.current?.view;
@@ -471,8 +515,12 @@ export const EditorPane = memo(
         },
         getPath: () => path,
         reload: () => reloadRef.current(),
-        gotoLine: (line: number) => {
-          pendingLineRef.current = line;
+        gotoLine: (line: number, options) => {
+          pendingLineRef.current = {
+            path,
+            line,
+            focus: options?.focus ?? true,
+          };
           applyPendingGoto();
         },
         undo: () => {
@@ -494,7 +542,7 @@ export const EditorPane = memo(
           startCompletion(view);
         },
       }),
-      [path, applyPendingGoto],
+      [path, applyPendingFocus, applyPendingGoto],
     );
 
     if (doc.status === "loading") {
