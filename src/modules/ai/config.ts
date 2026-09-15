@@ -2,11 +2,8 @@ export const KEYRING_SERVICE = "terax-ai";
 
 export type ProviderId =
   | "openai"
-  | "openai-account"
-  | "copilot-account"
   | "anthropic"
   | "google"
-  | "google-account"
   | "xai"
   | "cerebras"
   | "groq"
@@ -37,20 +34,6 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     consoleUrl: "https://platform.openai.com/api-keys",
   },
   {
-    id: "openai-account",
-    label: "OpenAI Account",
-    keyringAccount: "",
-    keyPrefix: null,
-    consoleUrl: "https://developers.openai.com/codex/app-server",
-  },
-  {
-    id: "copilot-account",
-    label: "Copilot Account",
-    keyringAccount: "",
-    keyPrefix: null,
-    consoleUrl: "https://github.com/settings/copilot",
-  },
-  {
     id: "anthropic",
     label: "Anthropic",
     keyringAccount: "anthropic-api-key",
@@ -64,14 +47,6 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     keyPrefix: null,
     consoleUrl: "https://aistudio.google.com/apikey",
   },
-  {
-    id: "google-account",
-    label: "Google Account",
-    keyringAccount: "",
-    keyPrefix: null,
-    consoleUrl: "https://cloud.google.com/docs/authentication/application-default-credentials",
-  },
-
   {
     id: "xai",
     label: "xAI",
@@ -213,81 +188,6 @@ export type ModelInfo = {
 };
 
 export const MODELS = [
-  {
-    id: "openai-account-codex",
-    provider: "openai-account",
-    label: "Codex Account",
-    hint: "ChatGPT",
-    description: "Codex models available through your ChatGPT account.",
-    capabilities: { intelligence: 5, speed: 3, cost: 5 },
-    tags: ["vision", "reasoning", "tools", "coding"],
-  },
-  {
-    id: "copilot-account-copilot",
-    provider: "copilot-account",
-    label: "Copilot Account",
-    hint: "Copilot",
-    description: "GitHub Copilot Chat API (requires gh cli login).",
-    capabilities: { intelligence: 5, speed: 3, cost: 5 },
-    tags: ["vision", "tools", "coding"],
-  },
-  {
-    id: "copilot-account-gpt-5.4",
-    provider: "copilot-account",
-    label: "Copilot - GPT-5.4",
-    hint: "Copilot",
-    description: "GPT-5.4 via GitHub Copilot",
-    capabilities: { intelligence: 5, speed: 3, cost: 5 },
-    tags: ["vision", "reasoning", "tools", "coding"],
-  },
-  {
-    id: "copilot-account-gpt-5.4-mini",
-    provider: "copilot-account",
-    label: "Copilot - GPT-5.4 mini",
-    hint: "Copilot",
-    description: "GPT-5.4 mini via GitHub Copilot",
-    capabilities: { intelligence: 4, speed: 5, cost: 2 },
-    tags: ["vision", "reasoning", "tools", "coding"],
-  },
-
-
-  {
-    id: "copilot-account-claude-sonnet-4.6",
-    provider: "copilot-account",
-    label: "Copilot - Claude Sonnet 4.6",
-    hint: "Copilot",
-    description: "Claude Sonnet 4.6 via GitHub Copilot",
-    capabilities: { intelligence: 5, speed: 4, cost: 4 },
-    tags: ["vision", "reasoning", "tools", "coding"],
-  },
-
-  {
-    id: "copilot-account-gemini-3.1-pro-preview",
-    provider: "copilot-account",
-    label: "Copilot - Gemini 3.1 Pro",
-    hint: "Copilot",
-    description: "Gemini 3.1 Pro via GitHub Copilot",
-    capabilities: { intelligence: 5, speed: 3, cost: 5 },
-    tags: ["vision", "reasoning", "tools", "coding"],
-  },
-  {
-    id: "copilot-account-gemini-3.5-flash",
-    provider: "copilot-account",
-    label: "Copilot - Gemini 3.5 Flash",
-    hint: "Copilot",
-    description: "Gemini 3.5 Flash via GitHub Copilot",
-    capabilities: { intelligence: 4, speed: 5, cost: 2 },
-    tags: ["vision", "reasoning", "tools", "coding"],
-  },
-  {
-    id: "google-account-gemini-2.5-pro",
-    provider: "google-account",
-    label: "Google Account (Gemini 2.5 Pro)",
-    hint: "Gemini 2.5",
-    description: "Gemini models via Google ADC or Antigravity CLI.",
-    capabilities: { intelligence: 5, speed: 3, cost: 5 },
-    tags: ["vision", "reasoning", "tools", "coding"],
-  },
   // ── OpenAI ────────────────────────────────────────────────────────────────
   {
     id: "gpt-5.6",
@@ -815,74 +715,6 @@ export function modelUsesReasoningTokens(
 
 export const DEFAULT_MODEL_ID: ModelId = "gpt-5.4-mini";
 
-/**
- * Whether a model's chain-of-thought ("deep thinking") can be controlled.
- * - `optional`: hybrid model whose thinking we can switch via providerOptions
- *   (native OpenAI / Anthropic / Google). The input-bar toggle drives it.
- * - `always`: reasoning-only model — thinking is inherent and can't be turned
- *   off (toggle is shown locked-on, purely informational).
- * - `never`: no thinking; no toggle shown.
- */
-export type ThinkingMode = "always" | "optional" | "never";
-
-/** Hybrid models whose thinking we can toggle through providerOptions. Only the
- *  three native SDKs expose this; gateway/local providers are model-bound. */
-const THINKING_OPTIONAL: ReadonlySet<string> = new Set([
-  "openai-account-codex",
-  // OpenAI GPT-5 family — reasoningEffort
-  "gpt-5.5",
-  "gpt-5.4-mini",
-  "gpt-5.3-codex",
-  "copilot-account-gpt-5.4",
-  "copilot-account-gpt-5.4-mini",
-  // Anthropic — extended thinking
-  "claude-opus-4-7",
-  "claude-sonnet-4-6",
-  "copilot-account-claude-sonnet-4.6",
-  "claude-haiku-4-5",
-  "claude-opus-4-6",
-  // Google Gemini — thinkingConfig
-  "gemini-3.5-flash",
-  "gemini-3.1-flash-lite",
-  "gemini-3.1-pro-preview",
-  "gemini-3-flash-preview",
-  "gemini-2.5-pro",
-  "gemini-2.5-flash",
-  "copilot-account-gemini-3.1-pro-preview",
-  "copilot-account-gemini-3.5-flash",
-  // DeepSeek V4 Pro — thinking toggle supported
-  "deepseek-v4-pro",
-  "deepseek/deepseek-v4-pro",
-]);
-
-/** Reasoning-only models — always think, regardless of the toggle. */
-const THINKING_ALWAYS: ReadonlySet<string> = new Set([
-  "grok-4.20-reasoning",
-  "grok-4-fast-reasoning",
-  "x-ai/grok-4.20-reasoning",
-  "deepseek-reasoner",
-  "deepseek/deepseek-reasoner",
-  "deepseek-r1-distill-llama-70b",
-]);
-
-export function getThinkingMode(modelId: string | undefined): ThinkingMode {
-  if (!modelId) return "never";
-  if (THINKING_ALWAYS.has(modelId)) return "always";
-  if (THINKING_OPTIONAL.has(modelId)) return "optional";
-  return "never";
-}
-
-/** Effective thinking state = model capability layered over the user toggle. */
-export function resolveThinkingEnabled(
-  modelId: string | undefined,
-  userEnabled: boolean,
-): boolean {
-  const mode = getThinkingMode(modelId);
-  if (mode === "always") return true;
-  if (mode === "never") return false;
-  return userEnabled;
-}
-
 /** Approximate context window (in tokens) per model. Used for the
  *  context-usage indicator in the AI mini-window header. Conservative
  *  estimates — actual provider limits may shift. */
@@ -1008,9 +840,6 @@ export function estimateCost(
 
 /** Providers that do not require an API key (local servers, key-optional). */
 export const KEYLESS_PROVIDERS: readonly ProviderId[] = [
-  "openai-account",
-  "copilot-account",
-  "google-account",
   "lmstudio",
   "mlx",
   "ollama",
@@ -1024,9 +853,6 @@ export function providerNeedsKey(id: ProviderId): boolean {
 /** True for providers that accept an API key — required *or* optional.
  *  Used by Settings to decide whether to render a key card at all. */
 export function providerSupportsKey(id: ProviderId): boolean {
-  if (id === "openai-account") return false;
-  if (id === "copilot-account") return false;
-  if (id === "google-account") return false;
   if (providerNeedsKey(id)) return true;
   const p = getProvider(id);
   return !!p.keyOptional;
@@ -1053,10 +879,7 @@ export const DEFAULT_AUTOCOMPLETE_MODEL: Partial<Record<ProviderId, string>> = {
 /** Curated list of fast models suitable for inline completion (speed ≥ 4). */
 export function getAutocompleteEligibleModels(): readonly ModelInfo[] {
   return MODELS.filter(
-    (m) =>
-      m.provider !== "openai-account" &&
-      m.capabilities.speed >= 4 &&
-      m.id !== "openai-compatible-custom",
+    (m) => m.capabilities.speed >= 4 && m.id !== "openai-compatible-custom",
   );
 }
 

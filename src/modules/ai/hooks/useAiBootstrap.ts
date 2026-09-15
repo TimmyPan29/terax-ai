@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { firePendingReviewForSession } from "@/modules/agents/lib/review";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { onKeysChanged } from "@/modules/settings/store";
-import { codexAccountWasConnected, useCodexStore } from "../codex/store";
 import {
   getAllCustomEndpointKeys,
   getAllKeys,
@@ -55,9 +54,7 @@ export function useAiBootstrap(): {
     customEndpoints.some(
       (e) => e.baseURL.trim().length > 0 && e.modelId.trim().length > 0,
     );
-  const codexConnected = useCodexStore((s) => s.phase === "connected");
-  const refreshCodex = useCodexStore((s) => s.refresh);
-  const hasComposer = hasAnyKey(apiKeys) || hasLocalModel || codexConnected;
+  const hasComposer = hasAnyKey(apiKeys) || hasLocalModel;
 
   const prefsHydrated = usePreferencesStore((s) => s.hydrated);
   const [keysLoaded, setKeysLoaded] = useState(false);
@@ -95,13 +92,7 @@ export function useAiBootstrap(): {
   useEffect(() => {
     if (!prefsHydrated) return;
     setSelectedModelId(prefDefaultModel);
-    if (
-      prefDefaultModel === "openai-account-codex" ||
-      codexAccountWasConnected()
-    ) {
-      void refreshCodex();
-    }
-  }, [prefsHydrated, prefDefaultModel, refreshCodex, setSelectedModelId]);
+  }, [prefsHydrated, prefDefaultModel, setSelectedModelId]);
 
   useEffect(() => {
     void hydrateSessions();

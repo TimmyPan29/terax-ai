@@ -374,7 +374,6 @@ export function useSourceControlPanel(
   const agentStatus = useChatStore((state) => state.agentMeta.status);
   const hasApiKeyForSelected = useChatStore((state) => {
     const model = resolveModel(state.selectedModelId);
-    if (model.provider === "openai-account") return false;
     return !providerNeedsKey(model.provider) || !!state.apiKeys[model.provider];
   });
   const lmstudioModelId = usePreferencesStore((state) => state.lmstudioModelId);

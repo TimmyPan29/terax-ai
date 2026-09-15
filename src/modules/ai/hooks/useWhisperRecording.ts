@@ -96,18 +96,7 @@ export function useWhisperRecording({
         }
         setState("transcribing");
         try {
-          let resolvedKeys = apiKeys;
-          if (needsKey && providerKey === "••••••••") {
-            const { getKey } = await import("../lib/keyring");
-            const actualKey = await getKey(sttProvider as "openai" | "groq");
-            resolvedKeys = { ...apiKeys, [sttProvider]: actualKey ?? "" };
-          }
-          const text = await transcribeAudio(
-            blob,
-            sttProvider,
-            resolvedKeys,
-            sttOptions,
-          );
+          const text = await transcribeAudio(blob, sttProvider, apiKeys, sttOptions);
           if (text.trim()) onResult(text.trim());
         } catch (e) {
           console.error("stt.transcribe", e);

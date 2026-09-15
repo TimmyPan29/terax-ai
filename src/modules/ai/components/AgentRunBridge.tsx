@@ -4,13 +4,12 @@ import { useEffect, useMemo, useRef } from "react";
 import { native } from "../lib/native";
 import { checkReadable } from "../lib/security";
 import { resolvePath } from "../tools/tools";
-import { applyUnifiedPatch } from "@/modules/ai/codex/patch";
 import {
   flushPersist,
   useChatStore,
   type AgentRunStatus,
 } from "../store/chatStore";
-import { getOrCreateChat, respondToCodexApproval } from "../store/chatRuntime";
+import { getOrCreateChat } from "../store/chatRuntime";
 
 /**
  * Headless bridge that mirrors chat lifecycle into the store, so the status
@@ -72,10 +71,9 @@ function Bridge({
   // Expose the approval responder so the diff tab can resolve approvals.
   // We keep it in a ref-stable closure so identity is stable per render.
   useEffect(() => {
-    setApprovalResponder((id, approved) => {
-      if (respondToCodexApproval(id, approved)) return;
-      void addToolApprovalResponse({ id, approved });
-    });
+    setApprovalResponder((id, approved) =>
+      addToolApprovalResponse({ id, approved }),
+    );
     return () => setApprovalResponder(null);
   }, [setApprovalResponder, addToolApprovalResponse]);
 
@@ -148,9 +146,7 @@ function Bridge({
         if (
           t === "tool-write_file" ||
           t === "tool-edit" ||
-          t === "tool-multi_edit" ||
-          (t === "dynamic-tool" &&
-            (p as { toolName?: string }).toolName === "codex_file_change")
+          t === "tool-multi_edit"
         ) {
           const state = (p as { state?: string }).state ?? "";
           const id =
@@ -172,8 +168,7 @@ function Bridge({
        */
       derive:
         | { kind: "literal"; content: string }
-        | { kind: "edits"; edits: EditOp[] }
-        | { kind: "patch"; patch: string };
+        | { kind: "edits"; edits: EditOp[] };
     };
     if (fileMutationFingerprint === fileMutationFingerprintRef.current) {
       return;
@@ -229,17 +224,13 @@ function Bridge({
         let proposed = "";
         if (p.derive.kind === "literal") {
           proposed = p.derive.content;
-        } else if (p.derive.kind === "edits") {
+        } else {
           const r = applyEditsLocally(original.content, p.derive.edits);
           if (!r.ok) {
             // Edit precondition failed (string not found / not unique).
             // Skip opening the tab; the approval modal will surface the error.
             continue;
           }
-          proposed = r.content;
-        } else {
-          const r = applyUnifiedPatch(original.content, p.derive.patch);
-          if (!r.ok) continue;
           proposed = r.content;
         }
         openAiDiffTab({
@@ -274,12 +265,6 @@ type FileMutation =
       approvalId: string | null;
       path: string;
       derive: { kind: "edits"; edits: EditOp[] };
-    }
-  | {
-      state: string;
-      approvalId: string | null;
-      path: string;
-      derive: { kind: "patch"; patch: string };
     };
 
 function extractFileMutation(part: AnyPart): FileMutation | null {
@@ -335,24 +320,6 @@ function extractFileMutation(part: AnyPart): FileMutation | null {
       .filter((e) => e.old_string.length > 0);
     if (edits.length === 0) return null;
     return { state, approvalId, path, derive: { kind: "edits", edits } };
-  }
-  if (
-    type === "dynamic-tool" &&
-    (part as { toolName?: string }).toolName === "codex_file_change"
-  ) {
-    const input = (p.input ?? {}) as { changes?: unknown };
-    if (!Array.isArray(input.changes)) return null;
-    const first = (input.changes as Array<Record<string, unknown>>).find(
-      (change) =>
-        typeof change.path === "string" && typeof change.diff === "string",
-    );
-    if (!first) return null;
-    return {
-      state,
-      approvalId,
-      path: String(first.path),
-      derive: { kind: "patch", patch: String(first.diff) },
-    };
   }
   return null;
 }

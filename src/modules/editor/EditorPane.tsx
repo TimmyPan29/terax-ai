@@ -44,6 +44,7 @@ import {
   languageCompartment,
   lspCompartment,
   vimCompartment,
+  wordWrapExtension,
   wrapCompartment,
 } from "./lib/extensions";
 import {
@@ -119,7 +120,9 @@ export const EditorPane = memo(
     const cmRef = useRef<ReactCodeMirrorRef>(null);
     const themeExt = useEditorThemeExt();
     const vimMode = usePreferencesStore((s) => s.vimMode);
-    const editorWordWrap = usePreferencesStore((s) => s.editorWordWrap);
+    const wordWrapColumn = usePreferencesStore((s) =>
+      s.editorWordWrap ? s.editorWordWrapColumn : null,
+    );
     const languageRef = useRef<string | null>(null);
     const [langId, setLangId] = useState<string | null>(null);
     const apiKeyRef = useRef<string | null>(null);
@@ -312,9 +315,11 @@ export const EditorPane = memo(
           usePreferencesStore.getState().vimMode ? Prec.highest(vim()) : [],
         ),
         wrapCompartment.of(
-          usePreferencesStore.getState().editorWordWrap
-            ? EditorView.lineWrapping
-            : [],
+          wordWrapExtension(
+            usePreferencesStore.getState().editorWordWrap
+              ? usePreferencesStore.getState().editorWordWrapColumn
+              : null,
+          ),
         ),
         vimHandlersExtension(() => ({
           save: () => {
@@ -396,11 +401,9 @@ export const EditorPane = memo(
       const view = cmRef.current?.view;
       if (!view) return;
       view.dispatch({
-        effects: wrapCompartment.reconfigure(
-          editorWordWrap ? EditorView.lineWrapping : [],
-        ),
+        effects: wrapCompartment.reconfigure(wordWrapExtension(wordWrapColumn)),
       });
-    }, [editorWordWrap]);
+    }, [wordWrapColumn]);
 
     useEffect(() => {
       if (doc.status !== "ready") return;
@@ -574,20 +577,7 @@ export const EditorPane = memo(
       const isAudio = ["mp3", "wav", "flac", "aac", "m4a"].includes(ext);
       const isPdf = ext === "pdf";
 
-      if (isPdf) {
-        const assetUrl = convertFileSrc(path);
-        return (
-          <div className="zoom-exempt h-full min-h-0 w-full min-w-0 overflow-hidden bg-background">
-            <iframe
-              src={assetUrl}
-              className="block h-full w-full min-w-0 border-0"
-              title={path.split("/").pop()}
-            />
-          </div>
-        );
-      }
-
-      if (isImage || isVideo || isAudio) {
+      if (isImage || isVideo || isAudio || isPdf) {
         const assetUrl = convertFileSrc(path);
         return (
           <div className="flex h-full min-h-0 flex-col items-center justify-center bg-background p-4 overflow-auto">
@@ -623,12 +613,18 @@ export const EditorPane = memo(
                 src={assetUrl}
               />
             )}
+            {isPdf && (
+              <iframe
+                src={assetUrl}
+                className="w-full h-full border-none"
+                title={path.split("/").pop()}
+              />
+            )}
           </div>
         );
       }
 
-      const canForce =
-        doc.status === "toolarge" && doc.size <= FORCE_READ_LIMIT;
+      const canForce = doc.status === "toolarge" && doc.size <= FORCE_READ_LIMIT;
       return (
         <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
           <div className="text-sm text-foreground">
@@ -660,7 +656,7 @@ export const EditorPane = memo(
           theme={themeExt}
           extensions={extensions}
           height="100%"
-          className="flex-1 min-h-0 overflow-hidden"
+          className="terax-code-editor flex-1 min-h-0 overflow-hidden"
           basicSetup={{
             lineNumbers: true,
             highlightActiveLineGutter: true,

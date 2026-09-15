@@ -86,7 +86,7 @@ jobs:
           releaseName: "Terax ${{ github.ref_name }}"
           releaseBody: "See the assets to download and install."
           releaseDraft: true
-          prerelease: false
+          prerelease: true
           args: ${{ matrix.args }}
 
       # Strip the bundled libwayland-* libs from the AppImage so it loads the

@@ -24,7 +24,6 @@ import {
   type SessionMeta,
 } from "../lib/sessions";
 import { pushRecentModel } from "../lib/modelPrefs";
-import { codexRequest } from "@/modules/ai/codex/client";
 
 export type Live = {
   getCwd: () => string | null;
@@ -116,12 +115,6 @@ type StoreState = {
   selectedModelId: string;
   setSelectedModelId: (id: string) => void;
 
-  /** User's "deep thinking" preference (persisted). Effective state also
-   *  depends on the model — see resolveThinkingEnabled. */
-  thinkingEnabled: boolean;
-  setThinkingEnabled: (v: boolean) => void;
-  toggleThinking: () => void;
-
   mini: MiniState;
   openMini: () => void;
   closeMini: () => void;
@@ -154,11 +147,6 @@ type StoreState = {
   switchSession: (id: string) => void;
   deleteSession: (id: string) => void;
   renameSession: (id: string, title: string) => void;
-  setCodexThread: (
-    id: string,
-    threadId: string,
-    contextImported: boolean,
-  ) => void;
   /** Persist messages of a session and bump its updatedAt + auto-title. */
   persistMessages: (id: string, messages: UIMessage[]) => void;
 };
@@ -220,24 +208,6 @@ export function flushPersist(id?: string): void {
   for (const key of Array.from(pendingPersist.keys())) flushPersistEntry(key);
 }
 
-const THINKING_KEY = "terax.ai.thinkingEnabled";
-
-function readThinkingEnabled(): boolean {
-  try {
-    return window.localStorage.getItem(THINKING_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeThinkingEnabled(v: boolean): void {
-  try {
-    window.localStorage.setItem(THINKING_KEY, v ? "1" : "0");
-  } catch {
-    // storage may fail in private mode
-  }
-}
-
 export const useChatStore = create<StoreState>((set, get) => ({
   live: NOOP_LIVE,
   setLive: (live) => set({ live }),
@@ -262,17 +232,6 @@ export const useChatStore = create<StoreState>((set, get) => ({
   setSelectedModelId: (id) => {
     set({ selectedModelId: id });
     void pushRecentModel(id);
-  },
-
-  thinkingEnabled: readThinkingEnabled(),
-  setThinkingEnabled: (v) => {
-    set({ thinkingEnabled: v });
-    writeThinkingEnabled(v);
-  },
-  toggleThinking: () => {
-    const next = !get().thinkingEnabled;
-    set({ thinkingEnabled: next });
-    writeThinkingEnabled(next);
   },
 
   mini: { open: false },
@@ -394,7 +353,6 @@ export const useChatStore = create<StoreState>((set, get) => ({
   },
 
   deleteSession: (id) => {
-    const deleted = get().sessions.find((s) => s.id === id);
     const remaining = get().sessions.filter((s) => s.id !== id);
     chats.get(id)?.stop();
     chats.delete(id);
@@ -406,11 +364,6 @@ export const useChatStore = create<StoreState>((set, get) => ({
     }
     void deleteSessionData(id);
     void useTodosStore.getState().clearSession(id);
-    if (deleted?.codexThreadId) {
-      void codexRequest("thread/archive", {
-        threadId: deleted.codexThreadId,
-      }).catch(() => {});
-    }
 
     if (remaining.length === 0) {
       const fresh: SessionMeta = {
@@ -435,21 +388,6 @@ export const useChatStore = create<StoreState>((set, get) => ({
   renameSession: (id, title) => {
     const next = get().sessions.map((s) =>
       s.id === id ? { ...s, title, updatedAt: Date.now() } : s,
-    );
-    set({ sessions: next });
-    void saveSessionsList(next);
-  },
-
-  setCodexThread: (id, threadId, contextImported) => {
-    const next = get().sessions.map((session) =>
-      session.id === id
-        ? {
-            ...session,
-            codexThreadId: threadId,
-            codexContextImported: contextImported,
-            updatedAt: Date.now(),
-          }
-        : session,
     );
     set({ sessions: next });
     void saveSessionsList(next);

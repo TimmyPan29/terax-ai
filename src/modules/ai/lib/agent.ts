@@ -3,14 +3,12 @@ import {
   pruneMessages,
   stepCountIs,
   streamText,
-  type JSONValue,
   type LanguageModel,
   type UIMessage,
 } from "ai";
 import {
   DEFAULT_MODEL_ID,
   endpointIdFromCompatModel,
-  getModel,
   getModelContextLimit,
   isCompatModelId,
   LMSTUDIO_DEFAULT_BASE_URL,
@@ -20,15 +18,13 @@ import {
   OLLAMA_DEFAULT_BASE_URL,
   providerNeedsKey,
   resolveModel,
-  resolveThinkingEnabled,
   selectSystemPrompt,
   type CustomEndpoint,
-  type ModelId,
   type ProviderId,
 } from "../config";
 import { buildTools, type ToolContext } from "../tools/tools";
 import { compactModelMessagesDetailed } from "./compact";
-import { getKey, type CustomEndpointKeys, type ProviderKeys } from "./keyring";
+import type { ProviderKeys, CustomEndpointKeys } from "./keyring";
 import { prepareAgentPrompt } from "./prompt";
 import { createProxyFetch } from "./proxyFetch";
 
@@ -84,18 +80,12 @@ export async function buildLanguageModel(
   options: BuildModelOptions = {},
   customEndpointKey?: string | null,
 ): Promise<LanguageModel> {
-  let key = keys[provider] ?? "";
-  if (providerNeedsKey(provider)) {
-    if (key === "••••••••" || !key) {
-      const actualKey = await getKey(provider);
-      if (!actualKey) {
-        throw new Error(
-          `No API key configured for ${provider}. Open Settings → AI to add one.`,
-        );
-      }
-      key = actualKey;
-    }
+  if (providerNeedsKey(provider) && !keys[provider]) {
+    throw new Error(
+      `No API key configured for ${provider}. Open Settings → AI to add one.`,
+    );
   }
+  const key = keys[provider] ?? "";
   const lmstudioURL = options.lmstudioBaseURL ?? LMSTUDIO_DEFAULT_BASE_URL;
   const mlxURL = options.mlxBaseURL ?? MLX_DEFAULT_BASE_URL;
   const ollamaURL = options.ollamaBaseURL ?? OLLAMA_DEFAULT_BASE_URL;
@@ -107,85 +97,6 @@ export async function buildLanguageModel(
 
   let built: LanguageModel;
   switch (provider) {
-    case "openai-account": {
-      throw new Error(
-        "OpenAI Account uses Codex app-server and cannot be built as a language model.",
-      );
-    }
-    case "copilot-account": {
-      const { createOpenAICompatible } =
-        await import("@ai-sdk/openai-compatible");
-      const { getCopilotSessionToken } =
-        await import("./copilotAuth");
-      
-      const upstreamModel = resolvedModelId.replace("copilot-account-", "");
-      const isGemini = upstreamModel.startsWith("gemini");
-      
-      // For Gemini models we need a proper ghu_-based session token
-      // because the gh-cli gho_ token's integrator (copilot-4-cli)
-      // does not have Gemini in its allow-list.
-      let sessionToken: string | null = null;
-      if (isGemini) {
-        sessionToken = await getCopilotSessionToken();
-      }
-
-      const copilotProxyFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-        if (init) {
-          const newHeaders: Record<string, string> = {};
-          if (init.headers instanceof Headers) {
-            init.headers.forEach((v, k) => { newHeaders[k] = v; });
-          } else if (Array.isArray(init.headers)) {
-            for (const [k, v] of init.headers) newHeaders[k] = v;
-          } else if (init.headers) {
-            Object.assign(newHeaders, init.headers);
-          }
-          if (isGemini) {
-            // Use session token directly — bypass Rust-side gh auth
-            newHeaders["copilot-integration-id"] = "vscode-chat";
-            delete newHeaders["x-terax-auth"];
-            if (sessionToken) {
-              newHeaders["authorization"] = `Bearer ${sessionToken}`;
-            }
-          } else {
-            // Non-Gemini: keep using x-terax-auth for Rust-side gh auth
-            newHeaders["copilot-integration-id"] = "copilot-chat";
-          }
-          newHeaders["editor-version"] = "vscode/1.115.0";
-          newHeaders["editor-plugin-version"] = "copilot-chat/0.30.0";
-          init.headers = newHeaders;
-        }
-        if (init?.body && typeof init.body === "string") {
-          try {
-            const parsed = JSON.parse(init.body);
-            if (getModel(resolvedModelId as ModelId).tags?.includes("reasoning")) {
-              if (!upstreamModel.startsWith("gpt-5")) {
-                parsed.reasoning_effort = "high";
-              }
-            }
-            return localProxyFetch(input, { ...init, body: JSON.stringify(parsed) });
-          } catch (e) {
-            // ignore
-          }
-        }
-        return localProxyFetch(input, init);
-      };
-
-      let finalModel = upstreamModel === "copilot" ? "gpt-5.4-mini" : upstreamModel;
-      if (finalModel === "gpt-5.4-mini") {
-        finalModel = "gpt-5-mini";
-      }
-      
-      built = createOpenAICompatible({
-        name: "copilot-account",
-        baseURL: "https://api.githubcopilot.com",
-        apiKey: "dummy",
-        headers: isGemini
-          ? { "editor-version": "vscode/1.115.0", "editor-plugin-version": "copilot-chat/0.30.0", "Copilot-Integration-Id": "vscode-chat" }
-          : { "x-terax-auth": "copilot", "editor-version": "vscode/1.115.0", "editor-plugin-version": "copilot-chat/0.30.0", "Copilot-Integration-Id": "copilot-chat" },
-        fetch: copilotProxyFetch,
-      })(finalModel);
-      break;
-    }
     case "openai": {
       const { createOpenAI } = await import("@ai-sdk/openai");
       built = createOpenAI({ apiKey: key })(resolvedModelId);
@@ -193,31 +104,12 @@ export async function buildLanguageModel(
     }
     case "anthropic": {
       const { createAnthropic } = await import("@ai-sdk/anthropic");
-      // We run inside a Tauri webview (a browser origin). Anthropic blocks
-      // cross-origin browser requests unless this header opts in, otherwise the
-      // fetch fails CORS and WKWebView surfaces it only as "Load failed".
-      built = createAnthropic({
-        apiKey: key,
-        headers: { "anthropic-dangerous-direct-browser-access": "true" },
-      })(resolvedModelId);
+      built = createAnthropic({ apiKey: key })(resolvedModelId);
       break;
     }
     case "google": {
       const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
       built = createGoogleGenerativeAI({ apiKey: key })(resolvedModelId);
-      break;
-    }
-    case "google-account": {
-      const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
-      
-      const upstreamModel = resolvedModelId === "google-account-gemini-2.5-pro" ? "gemini-2.5-pro" : resolvedModelId;
-      
-      built = createGoogleGenerativeAI({ 
-        baseURL: "https://us-central1-aiplatform.googleapis.com/v1/projects/dummy-gcp-project-id/locations/us-central1/publishers/google",
-        apiKey: "dummy",
-        headers: { "x-terax-auth": "google" },
-        fetch: localProxyFetch,
-      })(upstreamModel);
       break;
     }
     case "xai": {
@@ -429,47 +321,6 @@ function buildStableSystem(
   return `${base}${memoryBlock}${personaBlock}${customBlock}`;
 }
 
-// Per-provider "deep thinking" knobs. Only the native SDKs expose a switch;
-// gateway/local providers think (or not) based on the chosen model, so we send
-// nothing for them. Returns undefined when thinking is off — letting the model
-// fall back to its own default rather than force-disabling (which some models,
-// e.g. Gemini 3 Pro, reject).
-function buildThinkingProviderOptions(
-  provider: ProviderId,
-  enabled: boolean,
-): Record<string, Record<string, JSONValue>> | undefined {
-  if (!enabled) return undefined;
-  switch (provider) {
-    case "anthropic":
-      return {
-        anthropic: { thinking: { type: "enabled", budgetTokens: 6000 } },
-      };
-    case "google":
-      return {
-        google: { thinkingConfig: { thinkingBudget: -1, includeThoughts: true } },
-      };
-    case "copilot-account":
-    case "openai":
-      return { openai: { reasoningEffort: "high" } };
-    case "deepseek":
-      return {
-        deepseek: {
-          reasoningEffort: "high",
-          extraBody: { thinking: { type: "enabled" } },
-        },
-      };
-    case "openrouter":
-      return {
-        openrouter: {
-          reasoningEffort: "high",
-          extraBody: { thinking: { type: "enabled" } },
-        },
-      };
-    default:
-      return undefined;
-  }
-}
-
 export type AgentUsage = {
   inputTokens: number;
   outputTokens: number;
@@ -511,9 +362,6 @@ export type RunAgentOptions = {
   customEndpointKeys?: CustomEndpointKeys;
   planMode?: boolean;
   projectMemory?: string | null;
-  /** User's "deep thinking" toggle. Layered over model capability — ignored for
-   *  always-thinking and non-thinking models. */
-  thinkingEnabled?: boolean;
   uiMessages: UIMessage[];
   abortSignal?: AbortSignal;
 };
@@ -571,11 +419,6 @@ export async function runAgentStream(opts: RunAgentOptions) {
     provider,
   );
 
-  const thinkingProviderOptions = buildThinkingProviderOptions(
-    provider,
-    resolveThinkingEnabled(modelId, opts.thinkingEnabled ?? false),
-  );
-
   let stepsSeen = 0;
   return streamText({
     model,
@@ -583,9 +426,6 @@ export async function runAgentStream(opts: RunAgentOptions) {
     messages: prompt.messages,
     allowSystemInMessages: false,
     tools: buildTools(opts.toolContext),
-    ...(thinkingProviderOptions
-      ? { providerOptions: thinkingProviderOptions }
-      : {}),
     stopWhen: stepCountIs(MAX_AGENT_STEPS),
     abortSignal: opts.abortSignal,
     onStepFinish: (step) => {

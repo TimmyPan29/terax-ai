@@ -3,16 +3,12 @@ import {
   type ChatTransport,
   lastAssistantMessageIsCompleteWithApprovalResponses,
 } from "ai";
-import { providerNeedsKey, resolveModel } from "../config";
+import { getModel, providerNeedsKey, type ModelId } from "../config";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { BUILTIN_AGENTS } from "../lib/agents";
 import { useAgentsStore } from "./agentsStore";
 import { usePlanStore } from "./planStore";
 import { createContextAwareTransport } from "../lib/transport";
-import {
-  createCodexTransport,
-  respondToCodexApproval,
-} from "@/modules/ai/codex/transport";
 import type { ToolContext } from "../tools/tools";
 import {
   chats,
@@ -41,7 +37,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     getSessionId: () => sessionId,
   };
 
-  const standardTransport = createContextAwareTransport({
+  const transport = createContextAwareTransport({
     getKeys: () => useChatStore.getState().apiKeys,
     toolContext,
     getModelId: () => useChatStore.getState().selectedModelId,
@@ -63,7 +59,6 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       };
     },
     getPlanMode: () => usePlanStore.getState().active,
-    getThinking: () => useChatStore.getState().thinkingEnabled,
     getLmstudioBaseURL: () => usePreferencesStore.getState().lmstudioBaseURL,
     getLmstudioModelId: () => usePreferencesStore.getState().lmstudioModelId,
     getMlxBaseURL: () => usePreferencesStore.getState().mlxBaseURL,
@@ -105,61 +100,6 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     },
   }) as unknown as ChatTransport<UIMessage>;
 
-  const codexTransport = createCodexTransport({
-    sessionId,
-    getSession: () => {
-      const session = useChatStore
-        .getState()
-        .sessions.find((candidate) => candidate.id === sessionId);
-      return {
-        threadId: session?.codexThreadId,
-        contextImported: session?.codexContextImported,
-      };
-    },
-    setThread: (threadId, contextImported) =>
-      useChatStore
-        .getState()
-        .setCodexThread(sessionId, threadId, contextImported),
-    getCwd: () => useChatStore.getState().live.getCwd(),
-    getWorkspaceRoot: () => useChatStore.getState().live.getWorkspaceRoot(),
-    getCustomInstructions: () =>
-      usePreferencesStore.getState().customInstructions,
-    getAgentPersona: () => {
-      const { activeId, customAgents } = useAgentsStore.getState();
-      const all = [...BUILTIN_AGENTS, ...customAgents];
-      const agent =
-        all.find((candidate) => candidate.id === activeId) ?? BUILTIN_AGENTS[0];
-      return { name: agent.name, instructions: agent.instructions };
-    },
-    onStep: (step) => {
-      useChatStore.getState().patchAgentMeta({ step });
-    },
-    onUsage: (usage) => {
-      useChatStore.getState().patchAgentMeta({
-        tokens: {
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          cachedInputTokens: usage.cachedInputTokens,
-        },
-        lastInputTokens: usage.lastInputTokens,
-        lastCachedTokens: usage.lastCachedTokens,
-      });
-    },
-  });
-
-  const transport: ChatTransport<UIMessage> = {
-    sendMessages: (options) =>
-      resolveModel(useChatStore.getState().selectedModelId).provider ===
-      "openai-account"
-        ? codexTransport.sendMessages(options)
-        : standardTransport.sendMessages(options),
-    reconnectToStream: (options) =>
-      resolveModel(useChatStore.getState().selectedModelId).provider ===
-      "openai-account"
-        ? codexTransport.reconnectToStream(options)
-        : standardTransport.reconnectToStream(options),
-  };
-
   const initialMessages = seedMessages.get(sessionId);
   seedMessages.delete(sessionId);
 
@@ -193,7 +133,7 @@ export async function sendMessage(text: string): Promise<boolean> {
   const sessionId = state.activeSessionId;
   if (!sessionId) return false;
   if (
-    providerNeedsKey(resolveModel(state.selectedModelId).provider) &&
+    providerNeedsKey(getModel(state.selectedModelId as ModelId).provider) &&
     !getActiveProviderKey()
   )
     return false;
@@ -201,5 +141,3 @@ export async function sendMessage(text: string): Promise<boolean> {
   await c.sendMessage({ text });
   return true;
 }
-
-export { respondToCodexApproval };

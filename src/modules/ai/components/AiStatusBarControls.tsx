@@ -28,7 +28,6 @@ import {
   FlashIcon,
   GlobeIcon,
   GoogleGeminiIcon,
-  GithubIcon,
   Grok02Icon,
   MistralIcon,
   Message01Icon,
@@ -61,15 +60,11 @@ import { ACCEPTED_FILES, useComposer } from "../lib/composer";
 import { toggleFavoriteModel } from "../lib/modelPrefs";
 import { useChatStore } from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { useCodexStore } from "@/modules/ai/codex/store";
 
 const PROVIDER_ICON = {
   openai: ChatGptIcon,
-  "openai-account": ChatGptIcon,
-  "copilot-account": GithubIcon,
   anthropic: ClaudeIcon,
   google: GoogleGeminiIcon,
-  "google-account": GoogleGeminiIcon,
   xai: Grok02Icon,
   cerebras: CpuIcon,
   groq: FlashIcon,
@@ -222,25 +217,18 @@ function ModelDropdown() {
   const current = isCompatModelId(selected)
     ? getCompatModelInfo(selected, customEndpoints)
     : getModel(selected as ModelId);
-  const codexConnected = useCodexStore((s) => s.phase === "connected");
   const [search, setSearch] = useState("");
   const [activeProvider, setActiveProvider] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("all");
   const inputRef = useRef<HTMLInputElement>(null);
   const currentProviderHasKey = isCompatModelId(selected)
     ? true
-    : current.provider === "openai-account"
-      ? codexConnected
-      : providerNeedsKey(current.provider)
-        ? !!apiKeys[current.provider]
-        : true;
+    : providerNeedsKey(current.provider)
+      ? !!apiKeys[current.provider]
+      : true;
 
   const hasKeyFor = (id: ProviderId) =>
-    id === "openai-account"
-      ? codexConnected
-      : providerNeedsKey(id)
-        ? !!apiKeys[id]
-        : true;
+    providerNeedsKey(id) ? !!apiKeys[id] : true;
 
   const epModelInfos = useMemo(() => {
     return customEndpoints.map((ep) =>
@@ -257,7 +245,7 @@ function ModelDropdown() {
     }
     return { configured, unconfigured };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiKeys, codexConnected]);
+  }, [apiKeys]);
 
   const allModels = useMemo(
     () => [...MODELS, ...epModelInfos],

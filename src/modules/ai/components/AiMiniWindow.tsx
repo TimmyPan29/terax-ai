@@ -35,13 +35,11 @@ import type { SessionMeta } from "../lib/sessions";
 import { useMiniWindowGeometry } from "../lib/useMiniWindowGeometry";
 import { useAgentsStore } from "../store/agentsStore";
 import { useChatStore } from "../store/chatStore";
-import { getOrCreateChat, respondToCodexApproval } from "../store/chatRuntime";
+import { getOrCreateChat } from "../store/chatRuntime";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { usePlanStore } from "../store/planStore";
-import { useExecutorStore } from "../store/executorStore";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { AiChatView } from "./AiChat";
-import { ExecutorReview } from "./ExecutorReview";
 import { PlanDiffReview } from "./PlanDiffReview";
 import { TodoStrip } from "./TodoStrip";
 
@@ -90,10 +88,6 @@ export function AiMiniWindow({ state }: { state: PresenceState }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [closeMini]);
 
-  useEffect(() => {
-    useExecutorStore.getState().loadPersistedRuns();
-  }, []);
-
   return (
     <div
       ref={ref}
@@ -131,7 +125,6 @@ export function AiMiniWindow({ state }: { state: PresenceState }) {
         />
       )}
       <PlanDiffReview />
-      <ExecutorReview />
     </div>
   );
 }
@@ -207,10 +200,7 @@ function Body({
               status={helpers.status}
               error={helpers.error}
               clearError={helpers.clearError}
-              addToolApprovalResponse={({ id, approved }) => {
-                if (respondToCodexApproval(id, approved)) return;
-                return helpers.addToolApprovalResponse({ id, approved });
-              }}
+              addToolApprovalResponse={helpers.addToolApprovalResponse}
               stop={helpers.stop}
             />
           </div>

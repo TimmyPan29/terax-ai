@@ -64,7 +64,6 @@ type Deps = {
   onCompact?: (info: { droppedCount: number }) => void;
   onFinishMeta?: (info: { hitStepCap: boolean; finishReason: string }) => void;
   getPlanMode?: () => boolean;
-  getThinking?: () => boolean;
 };
 
 type SendOptions = {
@@ -104,7 +103,6 @@ export function createContextAwareTransport(deps: Deps) {
       customEndpoints: deps.getCustomEndpoints?.(),
       customEndpointKeys: deps.getCustomEndpointKeys?.(),
       planMode: deps.getPlanMode?.(),
-      thinkingEnabled: deps.getThinking?.(),
       projectMemory,
       uiMessages: messagesForRun,
       abortSignal: options.abortSignal,

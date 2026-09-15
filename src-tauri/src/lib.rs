@@ -1,6 +1,10 @@
 pub mod modules;
 
-use modules::{agent, codex, control, fs, git, history, lsp, net, pty, secrets, shell, workspace};
+#[cfg(target_os = "macos")]
+use modules::app_menu;
+use modules::{
+    agent, control, fs, git, history, lsp, net, pty, secrets, shell, vibrancy, workspace,
+};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
@@ -77,6 +81,10 @@ fn parse_launch_target() -> LaunchTarget {
     resolve_launch_target(entries)
 }
 
+const fn settings_always_on_top(is_macos: bool) -> bool {
+    !is_macos
+}
+
 #[tauri::command]
 async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Result<(), String> {
     let url_path = match tab.as_deref() {
@@ -85,6 +93,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
     };
 
     if let Some(window) = app.get_webview_window("settings") {
+        #[cfg(not(target_os = "macos"))]
         let _ = window.set_always_on_top(true);
         let _ = window.show();
         let _ = window.set_focus();
@@ -102,14 +111,11 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         .min_inner_size(820.0, 620.0)
         .resizable(true)
         .visible(false)
-        // Keep settings above the main app window so it doesn't get hidden
-        // when the user clicks back into the editor or terminal (#33).
-        .always_on_top(true);
+        .always_on_top(settings_always_on_top(cfg!(target_os = "macos")));
 
-    // Tie lifecycle to the main window so settings minimizes/closes with it.
-    // macOS: skip parent() — child + always_on_top leaves the settings webview
-    // behind the main window except while the parent is being dragged (#33).
-    #[cfg(not(target_os = "macos"))]
+    // A normal-level child stays above Terax but recedes with the app on macOS.
+    // Never combine the macOS parent with always_on_top; that breaks WebView
+    // compositing and can hide Settings behind the main window (#33, #957).
     let builder = if let Some(main) = app.get_webview_window("main") {
         builder.parent(&main).map_err(|e| e.to_string())?
     } else {
@@ -179,112 +185,12 @@ pub fn run() {
     let control_for_setup = control_state.clone();
 
     let builder = tauri::Builder::default();
-    #[cfg(target_os = "linux")]
     let builder = builder.plugin(tauri_plugin_clipboard_manager::init());
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(app_menu::build)
+        .on_menu_event(app_menu::handle_event);
     builder
-        .setup(move |app| {
-            if let Err(error) = control::start(app.handle().clone(), control_for_setup.clone()) {
-                log::warn!("could not start Terax control server: {error}");
-            }
-
-            // Build the default menu structure
-            let menu = tauri::menu::Menu::default(app.handle())?;
-
-            // Build native new tab shortcut items (CmdOrCtrl+T, CmdOrCtrl+P, CmdOrCtrl+E)
-            let new_terminal_item = tauri::menu::MenuItemBuilder::new("New Terminal Tab")
-                .id("tab-new-terminal")
-                .accelerator("CmdOrCtrl+T")
-                .build(app)?;
-            let new_preview_item = tauri::menu::MenuItemBuilder::new("New Preview Tab")
-                .id("tab-new-preview")
-                .accelerator("CmdOrCtrl+P")
-                .build(app)?;
-            let new_editor_item = tauri::menu::MenuItemBuilder::new("New Editor Tab")
-                .id("tab-new-editor")
-                .accelerator("CmdOrCtrl+E")
-                .build(app)?;
-
-            // Build native AI toggle shortcut item (CmdOrCtrl+I)
-            let toggle_ai_item = tauri::menu::MenuItemBuilder::new("Toggle AI Panel")
-                .id("ai-toggle")
-                .accelerator("CmdOrCtrl+I")
-                .build(app)?;
-
-            // Build tab select items with accelerators (shortcuts CmdOrCtrl+1 to CmdOrCtrl+9)
-            // This allows tab switching to bypass iframe focus blocks natively.
-            let mut tab_items = Vec::new();
-            for i in 1..=9 {
-                let id = format!("tab-select-{}", i);
-                let accelerator = format!("CmdOrCtrl+{}", i);
-                let item = tauri::menu::MenuItemBuilder::new(format!("Select Tab {}", i))
-                    .id(&id)
-                    .accelerator(&accelerator)
-                    .build(app)?;
-                tab_items.push(item);
-            }
-
-            // Create Tabs submenu
-            let mut tabs_menu = tauri::menu::SubmenuBuilder::new(app, "Tabs")
-                .item(&new_terminal_item)
-                .item(&new_preview_item)
-                .item(&new_editor_item)
-                .separator()
-                .item(&toggle_ai_item)
-                .separator();
-
-            for item in &tab_items {
-                tabs_menu = tabs_menu.item(item);
-            }
-            let tabs_submenu = tabs_menu.build()?;
-
-            // Append the Submenu to the application menu
-            menu.append(&tabs_submenu)?;
-            app.set_menu(menu)?;
-
-            // macOS skips parent() for the settings window, so tie its lifecycle
-            // to the main window here instead. Other platforms keep parent().
-            #[cfg(target_os = "macos")]
-            if let Some(main) = app.get_webview_window("main") {
-                let handle = app.handle().clone();
-                main.on_window_event(move |event| {
-                    if matches!(
-                        event,
-                        WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed
-                    ) {
-                        if let Some(settings) = handle.get_webview_window("settings") {
-                            let _ = settings.close();
-                        }
-                    }
-                });
-            }
-
-            Ok(())
-        })
-        .on_menu_event(|app, event| {
-            let id = event.id().0.as_str();
-            match id {
-                "tab-new-terminal" => {
-                    let _ = app.emit("terax:new-tab", "terminal");
-                }
-                "tab-new-preview" => {
-                    let _ = app.emit("terax:new-tab", "preview");
-                }
-                "tab-new-editor" => {
-                    let _ = app.emit("terax:new-tab", "editor");
-                }
-                "ai-toggle" => {
-                    let _ = app.emit("terax:ai-toggle", ());
-                }
-                _ if id.starts_with("tab-select-") => {
-                    if let Some(idx_str) = id.strip_prefix("tab-select-") {
-                        if let Ok(idx) = idx_str.parse::<usize>() {
-                            let _ = app.emit("terax:select-tab", idx);
-                        }
-                    }
-                }
-                _ => {}
-            }
-        })
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Skip restoring VISIBLE — frontend calls window.show() after first
@@ -305,10 +211,30 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .setup(move |_app| {
+            #[cfg(target_os = "macos")]
+            modules::window_presentation::macos::install(_app.handle());
+            if let Err(error) = control::start(_app.handle().clone(), control_for_setup.clone()) {
+                log::warn!("could not start Terax control server: {error}");
+            }
+            #[cfg(target_os = "macos")]
+            if let Some(main) = _app.get_webview_window("main") {
+                let handle = _app.handle().clone();
+                main.on_window_event(move |event| {
+                    // CloseRequested can be cancelled by the frontend guard.
+                    if matches!(event, WindowEvent::Destroyed) {
+                        if let Some(settings) = handle.get_webview_window("settings") {
+                            let _ = settings.destroy();
+                        }
+                    }
+                });
+            }
+            Ok(())
+        })
         .manage(pty::PtyState::default())
+        .manage(modules::window_presentation::WindowPresentationState::default())
         .manage(control_state)
         .manage(shell::ShellState::default())
-        .manage(codex::CodexState::default())
         .manage(secrets::SecretsState::default())
         .manage(fs::watch::FsWatchState::default())
         .manage(history::HistoryState::default())
@@ -327,6 +253,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             pty::pty_open,
             pty::pty_write,
+            pty::pty_ack_output,
+            pty::pty_diagnostics,
             pty::pty_resize,
             pty::pty_close,
             pty::pty_close_all,
@@ -343,7 +271,9 @@ pub fn run() {
             fs::mutate::fs_create_file,
             fs::mutate::fs_create_dir,
             fs::mutate::fs_rename,
+            fs::mutate::fs_move,
             fs::mutate::fs_delete,
+            fs::mutate::fs_delete_batch,
             fs::mutate::fs_copy,
             fs::watch::fs_watch_add,
             fs::watch::fs_watch_remove,
@@ -397,11 +327,6 @@ pub fn run() {
             open_settings_window,
             agent::agent_enable_hooks,
             agent::agent_hooks_status,
-            codex::codex_status,
-            codex::codex_subscribe,
-            codex::codex_request,
-            codex::codex_respond,
-            codex::codex_stop,
             secrets::secrets_get,
             secrets::secrets_set,
             secrets::secrets_delete,
@@ -413,6 +338,9 @@ pub fn run() {
             history::history_commands,
             history::history_record,
             history::history_list,
+            vibrancy::window_backdrop_kind,
+            vibrancy::window_set_backdrop,
+            modules::window_presentation::window_presentation_state,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -421,6 +349,8 @@ pub fn run() {
                 // Servers exit on stdin EOF, but destructors are not guaranteed
                 // on process exit; kill explicitly.
                 tauri::RunEvent::Exit => {
+                    #[cfg(target_os = "macos")]
+                    modules::window_presentation::macos::uninstall();
                     if let Some(state) = app.try_state::<lsp::LspState>() {
                         state.kill_all();
                     }
@@ -465,7 +395,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod launch_target_tests {
-    use super::{resolve_launch_target, LaunchEntry, LaunchTarget};
+    use super::{resolve_launch_target, settings_always_on_top, LaunchEntry, LaunchTarget};
     use std::path::PathBuf;
 
     #[test]
@@ -482,8 +412,9 @@ mod launch_target_tests {
 
     #[test]
     fn file_arg_opens_file_and_uses_parent_as_workspace() {
-        let out =
-            resolve_launch_target(vec![LaunchEntry::File(PathBuf::from("/home/u/proj/main.rs"))]);
+        let out = resolve_launch_target(vec![LaunchEntry::File(PathBuf::from(
+            "/home/u/proj/main.rs",
+        ))]);
         assert_eq!(out.dir.as_deref(), Some("/home/u/proj"));
         assert_eq!(out.files, vec!["/home/u/proj/main.rs".to_string()]);
     }
@@ -509,5 +440,11 @@ mod launch_target_tests {
         ]);
         assert_eq!(out.dir.as_deref(), Some("/workspace"));
         assert_eq!(out.files, vec!["/other/x.rs".to_string()]);
+    }
+
+    #[test]
+    fn settings_float_only_outside_macos() {
+        assert!(!settings_always_on_top(true));
+        assert!(settings_always_on_top(false));
     }
 }

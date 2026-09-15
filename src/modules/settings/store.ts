@@ -125,6 +125,7 @@ export type Preferences = {
   backgroundImageId: string | null;
   backgroundOpacity: number;
   backgroundBlur: number;
+  windowVibrancy: boolean;
   defaultModelId: ModelId;
   editorTheme: EditorThemePref;
   editorFontSize: number;
@@ -146,8 +147,6 @@ export type Preferences = {
   openaiCompatibleContextLimit: number;
   customEndpoints: CustomEndpoint[];
   openrouterModelId: string;
-  codexModelId: string;
-  codexReasoningEffort: string;
   sttProvider: SttProvider;
   groqSttModel: string;
   whispercppBaseURL: string;
@@ -155,10 +154,11 @@ export type Preferences = {
   recentModelIds: string[];
   vimMode: boolean;
   editorWordWrap: boolean;
+  editorWordWrapColumn: number;
   showHidden: boolean;
   explorerGitDecorations: boolean;
-  terminalWebglEnabled: boolean;
-  terminalOsc52Clipboard: boolean;
+  terminalRenderer: "auto" | "webgl";
+  terminalScreenReader: boolean;
   terminalCursorBlink: boolean;
   terminalCursorStyle: TerminalCursorStyle;
   terminalFontFamily: string;
@@ -167,19 +167,14 @@ export type Preferences = {
   terminalLetterSpacing: number;
   terminalFontSize: number;
   terminalScrollback: number;
+  confirmCloseRunningTerminal: boolean;
   lastWslDistro: string | null;
   zoomLevel: number;
   agentNotifications: boolean;
+  agentNotificationSound: boolean;
   agentLaunchCommands: AgentLaunchCommands;
   defaultWorkspaceEnv: string;
   shortcuts: Record<ShortcutId, KeyBinding[]>;
-  /**
-   * Per-subagent model override, keyed by SubagentType. When set for a type,
-   * that subagent runs on this model (if its provider has a key); otherwise it
-   * uses the type's built-in default model, then falls back to the caller's
-   * model. Empty by default — zero behavior change until configured.
-   */
-  subagentModelOverrides: Record<string, ModelId>;
   editorAutoSave: boolean;
   editorAutoSaveDelay: number;
   editorFormatOnSave: boolean;
@@ -223,6 +218,7 @@ const KEY_BG_KIND = "backgroundKind";
 const KEY_BG_IMAGE_ID = "backgroundImageId";
 const KEY_BG_OPACITY = "backgroundOpacity";
 const KEY_BG_BLUR = "backgroundBlur";
+const KEY_WINDOW_VIBRANCY = "windowVibrancy";
 const KEY_DEFAULT_MODEL = "defaultModelId";
 const KEY_EDITOR_THEME = "editorTheme";
 const KEY_EDITOR_FONT_SIZE = "editorFontSize";
@@ -246,8 +242,6 @@ const KEY_OPENAI_COMPAT_MODEL_ID = "openaiCompatibleModelId";
 const KEY_OPENAI_COMPAT_CONTEXT_LIMIT = "openaiCompatibleContextLimit";
 const KEY_CUSTOM_ENDPOINTS = "customEndpoints";
 const KEY_OPENROUTER_MODEL_ID = "openrouterModelId";
-const KEY_CODEX_MODEL_ID = "codexModelId";
-const KEY_CODEX_REASONING_EFFORT = "codexReasoningEffort";
 const KEY_STT_PROVIDER = "sttProvider";
 const KEY_GROQ_STT_MODEL = "groqSttModel";
 const KEY_WHISPERCPP_BASE_URL = "whispercppBaseURL";
@@ -255,11 +249,12 @@ const KEY_FAVORITE_MODELS = "favoriteModelIds";
 const KEY_RECENT_MODELS = "recentModelIds";
 const KEY_VIM_MODE = "vimMode";
 const KEY_EDITOR_WORD_WRAP = "editorWordWrap";
+const KEY_EDITOR_WORD_WRAP_COLUMN = "editorWordWrapColumn";
 const KEY_SHOW_HIDDEN = "showHidden";
 const LEGACY_KEY_SHOW_HIDDEN_DIRS = "showHiddenDirectories";
 const KEY_EXPLORER_GIT_DECORATIONS = "explorerGitDecorations";
-const KEY_TERMINAL_WEBGL_ENABLED = "terminalWebglEnabled";
-const KEY_TERMINAL_OSC52_CLIPBOARD = "terminalOsc52Clipboard";
+const KEY_TERMINAL_RENDERER = "terminalRenderer";
+const KEY_TERMINAL_SCREEN_READER = "terminalScreenReader";
 const KEY_TERMINAL_CURSOR_BLINK = "terminalCursorBlink";
 const KEY_TERMINAL_CURSOR_STYLE = "terminalCursorStyle";
 const KEY_TERMINAL_FONT_FAMILY = "terminalFontFamily";
@@ -268,13 +263,14 @@ const KEY_TERMINAL_SHELL = "terminalShell";
 const KEY_TERMINAL_LETTER_SPACING = "terminalLetterSpacing";
 const KEY_TERMINAL_FONT_SIZE = "terminalFontSize";
 const KEY_TERMINAL_SCROLLBACK = "terminalScrollback";
+const KEY_CONFIRM_CLOSE_RUNNING_TERMINAL = "confirmCloseRunningTerminal";
 const KEY_LAST_WSL_DISTRO = "lastWslDistro";
 const KEY_ZOOM_LEVEL = "zoomLevel";
 const KEY_AGENT_NOTIFICATIONS = "agentNotifications";
+const KEY_AGENT_NOTIFICATION_SOUND = "agentNotificationSound";
 const KEY_AGENT_LAUNCH_COMMANDS = "agentLaunchCommands";
 const KEY_DEFAULT_WORKSPACE_ENV = "defaultWorkspaceEnv";
 const KEY_SHORTCUTS = "shortcuts";
-const KEY_SUBAGENT_MODEL_OVERRIDES = "subagentModelOverrides";
 const KEY_EDITOR_AUTO_SAVE = "editorAutoSave";
 const KEY_EDITOR_AUTO_SAVE_DELAY = "editorAutoSaveDelay";
 const KEY_EDITOR_FORMAT_ON_SAVE = "editorFormatOnSave";
@@ -299,6 +295,10 @@ export const EDITOR_FONT_SIZES = [
   10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24,
 ] as const;
 
+export const EDITOR_WORD_WRAP_COLUMN_DEFAULT = 80;
+export const EDITOR_WORD_WRAP_COLUMN_MIN = 20;
+export const EDITOR_WORD_WRAP_COLUMN_MAX = 500;
+
 export const TERMINAL_SCROLLBACK_DEFAULT = 2000;
 export const TERMINAL_SCROLLBACK_MIN = 200;
 export const TERMINAL_SCROLLBACK_MAX = 50_000;
@@ -318,6 +318,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   editorFontSize: EDITOR_FONT_SIZE_DEFAULT,
   customInstructions: "",
   autostart: false,
+  windowVibrancy: true,
   restoreWindowState: true,
   autocompleteEnabled: false,
   autocompleteTrigger: "auto",
@@ -334,8 +335,6 @@ export const DEFAULT_PREFERENCES: Preferences = {
   openaiCompatibleContextLimit: 128_000,
   customEndpoints: [],
   openrouterModelId: "",
-  codexModelId: "",
-  codexReasoningEffort: "",
   sttProvider: DEFAULT_STT_PROVIDER,
   groqSttModel: "whisper-large-v3-turbo",
   whispercppBaseURL: WHISPERCPP_DEFAULT_BASE_URL,
@@ -343,10 +342,11 @@ export const DEFAULT_PREFERENCES: Preferences = {
   recentModelIds: [],
   vimMode: false,
   editorWordWrap: false,
+  editorWordWrapColumn: EDITOR_WORD_WRAP_COLUMN_DEFAULT,
   showHidden: false,
   explorerGitDecorations: true,
-  terminalWebglEnabled: true,
-  terminalOsc52Clipboard: true,
+  terminalRenderer: "auto",
+  terminalScreenReader: false,
   terminalCursorBlink: false,
   terminalCursorStyle: "bar",
   terminalFontFamily: "",
@@ -355,13 +355,14 @@ export const DEFAULT_PREFERENCES: Preferences = {
   terminalLetterSpacing: 0,
   terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
   terminalScrollback: TERMINAL_SCROLLBACK_DEFAULT,
+  confirmCloseRunningTerminal: true,
   lastWslDistro: null,
   zoomLevel: 1.0,
   agentNotifications: true,
+  agentNotificationSound: true,
   agentLaunchCommands: DEFAULT_AGENT_LAUNCH_COMMANDS,
   defaultWorkspaceEnv: "local",
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
-  subagentModelOverrides: {},
   editorAutoSave: false,
   editorAutoSaveDelay: 1000,
   editorFormatOnSave: false,
@@ -428,6 +429,8 @@ export async function loadPreferences(): Promise<Preferences> {
     restoreWindowState:
       get<boolean>(KEY_RESTORE_WINDOW) ??
       DEFAULT_PREFERENCES.restoreWindowState,
+    windowVibrancy:
+      get<boolean>(KEY_WINDOW_VIBRANCY) ?? DEFAULT_PREFERENCES.windowVibrancy,
     autocompleteEnabled:
       get<boolean>(KEY_AUTOCOMPLETE_ENABLED) ??
       DEFAULT_PREFERENCES.autocompleteEnabled,
@@ -472,11 +475,6 @@ export async function loadPreferences(): Promise<Preferences> {
     openrouterModelId:
       get<string>(KEY_OPENROUTER_MODEL_ID) ??
       DEFAULT_PREFERENCES.openrouterModelId,
-    codexModelId:
-      get<string>(KEY_CODEX_MODEL_ID) ?? DEFAULT_PREFERENCES.codexModelId,
-    codexReasoningEffort:
-      get<string>(KEY_CODEX_REASONING_EFFORT) ??
-      DEFAULT_PREFERENCES.codexReasoningEffort,
     sttProvider:
       get<SttProvider>(KEY_STT_PROVIDER) ?? DEFAULT_PREFERENCES.sttProvider,
     groqSttModel:
@@ -493,6 +491,10 @@ export async function loadPreferences(): Promise<Preferences> {
     vimMode: get<boolean>(KEY_VIM_MODE) ?? DEFAULT_PREFERENCES.vimMode,
     editorWordWrap:
       get<boolean>(KEY_EDITOR_WORD_WRAP) ?? DEFAULT_PREFERENCES.editorWordWrap,
+    editorWordWrapColumn: clampEditorWordWrapColumn(
+      get<number>(KEY_EDITOR_WORD_WRAP_COLUMN) ??
+        DEFAULT_PREFERENCES.editorWordWrapColumn,
+    ),
     showHidden:
       get<boolean>(KEY_SHOW_HIDDEN) ??
       get<boolean>(LEGACY_KEY_SHOW_HIDDEN_DIRS) ??
@@ -500,12 +502,9 @@ export async function loadPreferences(): Promise<Preferences> {
     explorerGitDecorations:
       get<boolean>(KEY_EXPLORER_GIT_DECORATIONS) ??
       DEFAULT_PREFERENCES.explorerGitDecorations,
-    terminalWebglEnabled:
-      get<boolean>(KEY_TERMINAL_WEBGL_ENABLED) ??
-      DEFAULT_PREFERENCES.terminalWebglEnabled,
-    terminalOsc52Clipboard:
-      get<boolean>(KEY_TERMINAL_OSC52_CLIPBOARD) ??
-      DEFAULT_PREFERENCES.terminalOsc52Clipboard,
+    terminalRenderer:
+      get<string>(KEY_TERMINAL_RENDERER) === "webgl" ? "webgl" : "auto",
+    terminalScreenReader: get<boolean>(KEY_TERMINAL_SCREEN_READER) === true,
     terminalCursorBlink:
       get<boolean>(KEY_TERMINAL_CURSOR_BLINK) ??
       DEFAULT_PREFERENCES.terminalCursorBlink,
@@ -531,6 +530,9 @@ export async function loadPreferences(): Promise<Preferences> {
       get<number>(KEY_TERMINAL_SCROLLBACK) ??
         DEFAULT_PREFERENCES.terminalScrollback,
     ),
+    confirmCloseRunningTerminal:
+      get<boolean>(KEY_CONFIRM_CLOSE_RUNNING_TERMINAL) ??
+      DEFAULT_PREFERENCES.confirmCloseRunningTerminal,
     lastWslDistro:
       get<string | null>(KEY_LAST_WSL_DISTRO) ??
       DEFAULT_PREFERENCES.lastWslDistro,
@@ -538,6 +540,9 @@ export async function loadPreferences(): Promise<Preferences> {
     agentNotifications:
       get<boolean>(KEY_AGENT_NOTIFICATIONS) ??
       DEFAULT_PREFERENCES.agentNotifications,
+    agentNotificationSound:
+      get<boolean>(KEY_AGENT_NOTIFICATION_SOUND) ??
+      DEFAULT_PREFERENCES.agentNotificationSound,
     agentLaunchCommands: normalizeAgentLaunchCommands(
       get<unknown>(KEY_AGENT_LAUNCH_COMMANDS),
     ),
@@ -547,16 +552,6 @@ export async function loadPreferences(): Promise<Preferences> {
     shortcuts:
       get<Record<ShortcutId, KeyBinding[]>>(KEY_SHORTCUTS) ??
       DEFAULT_PREFERENCES.shortcuts,
-    subagentModelOverrides: ((): Record<string, ModelId> => {
-      const raw =
-        get<Record<string, string>>(KEY_SUBAGENT_MODEL_OVERRIDES) ?? {};
-      const out: Record<string, ModelId> = {};
-      // Drop any value that is no longer a known model id (e.g. a model that
-      // was removed between versions) so we never hand a bogus id downstream.
-      for (const [type, modelId] of Object.entries(raw))
-        if (isKnownModelId(modelId)) out[type] = modelId;
-      return out;
-    })(),
     editorAutoSave:
       get<boolean>(KEY_EDITOR_AUTO_SAVE) ?? DEFAULT_PREFERENCES.editorAutoSave,
     editorAutoSaveDelay: clampAutoSaveDelay(
@@ -675,6 +670,10 @@ export async function setRestoreWindowState(value: boolean): Promise<void> {
   await writePref(KEY_RESTORE_WINDOW, value);
 }
 
+export async function setWindowVibrancy(value: boolean): Promise<void> {
+  await writePref(KEY_WINDOW_VIBRANCY, value);
+}
+
 export async function setAutocompleteTrigger(
   value: AutocompleteTrigger,
 ): Promise<void> {
@@ -746,14 +745,6 @@ export async function setOpenrouterModelId(value: string): Promise<void> {
   await writePref(KEY_OPENROUTER_MODEL_ID, value);
 }
 
-export async function setCodexModelId(value: string): Promise<void> {
-  await writePref(KEY_CODEX_MODEL_ID, value);
-}
-
-export async function setCodexReasoningEffort(value: string): Promise<void> {
-  await writePref(KEY_CODEX_REASONING_EFFORT, value);
-}
-
 export async function setSttProvider(value: SttProvider): Promise<void> {
   await writePref(KEY_STT_PROVIDER, value);
 }
@@ -782,6 +773,21 @@ export async function setEditorWordWrap(value: boolean): Promise<void> {
   await writePref(KEY_EDITOR_WORD_WRAP, value);
 }
 
+export function clampEditorWordWrapColumn(value: number): number {
+  if (!Number.isFinite(value)) return EDITOR_WORD_WRAP_COLUMN_DEFAULT;
+  return Math.min(
+    EDITOR_WORD_WRAP_COLUMN_MAX,
+    Math.max(EDITOR_WORD_WRAP_COLUMN_MIN, Math.round(value)),
+  );
+}
+
+export async function setEditorWordWrapColumn(value: number): Promise<void> {
+  await writePref(
+    KEY_EDITOR_WORD_WRAP_COLUMN,
+    clampEditorWordWrapColumn(value),
+  );
+}
+
 export async function setShowHidden(value: boolean): Promise<void> {
   await writePref(KEY_SHOW_HIDDEN, value);
 }
@@ -790,12 +796,14 @@ export async function setExplorerGitDecorations(value: boolean): Promise<void> {
   await writePref(KEY_EXPLORER_GIT_DECORATIONS, value);
 }
 
-export async function setTerminalWebglEnabled(value: boolean): Promise<void> {
-  await writePref(KEY_TERMINAL_WEBGL_ENABLED, value);
+export async function setTerminalRenderer(
+  value: "auto" | "webgl",
+): Promise<void> {
+  await writePref(KEY_TERMINAL_RENDERER, value === "webgl" ? "webgl" : "auto");
 }
 
-export async function setTerminalOsc52Clipboard(value: boolean): Promise<void> {
-  await writePref(KEY_TERMINAL_OSC52_CLIPBOARD, value);
+export async function setTerminalScreenReader(value: boolean): Promise<void> {
+  await writePref(KEY_TERMINAL_SCREEN_READER, value);
 }
 
 export async function setTerminalCursorBlink(value: boolean): Promise<void> {
@@ -860,6 +868,12 @@ export async function setTerminalScrollback(value: number): Promise<void> {
   await writePref(KEY_TERMINAL_SCROLLBACK, clampScrollback(value));
 }
 
+export async function setConfirmCloseRunningTerminal(
+  value: boolean,
+): Promise<void> {
+  await writePref(KEY_CONFIRM_CLOSE_RUNNING_TERMINAL, value);
+}
+
 export async function setLastWslDistro(value: string | null): Promise<void> {
   await writePref(KEY_LAST_WSL_DISTRO, value);
 }
@@ -913,6 +927,10 @@ export async function setAgentNotifications(value: boolean): Promise<void> {
   await writePref(KEY_AGENT_NOTIFICATIONS, value);
 }
 
+export async function setAgentNotificationSound(value: boolean): Promise<void> {
+  await writePref(KEY_AGENT_NOTIFICATION_SOUND, value);
+}
+
 export async function setAgentLaunchCommands(
   value: AgentLaunchCommands,
 ): Promise<void> {
@@ -936,12 +954,6 @@ export async function resetShortcuts(): Promise<void> {
   await writePref(KEY_SHORTCUTS, DEFAULT_PREFERENCES.shortcuts);
 }
 
-export async function setSubagentModelOverrides(
-  value: Record<string, ModelId>,
-): Promise<void> {
-  await writePref(KEY_SUBAGENT_MODEL_OVERRIDES, value);
-}
-
 export type PrefKey = keyof Preferences;
 
 /** Subscribe to changes from any window (settings → main). */
@@ -955,6 +967,7 @@ export async function onPreferencesChange(
     [KEY_BG_IMAGE_ID]: "backgroundImageId",
     [KEY_BG_OPACITY]: "backgroundOpacity",
     [KEY_BG_BLUR]: "backgroundBlur",
+    [KEY_WINDOW_VIBRANCY]: "windowVibrancy",
     [KEY_DEFAULT_MODEL]: "defaultModelId",
     [KEY_EDITOR_THEME]: "editorTheme",
     [KEY_EDITOR_FONT_SIZE]: "editorFontSize",
@@ -976,8 +989,6 @@ export async function onPreferencesChange(
     [KEY_OPENAI_COMPAT_CONTEXT_LIMIT]: "openaiCompatibleContextLimit",
     [KEY_CUSTOM_ENDPOINTS]: "customEndpoints",
     [KEY_OPENROUTER_MODEL_ID]: "openrouterModelId",
-    [KEY_CODEX_MODEL_ID]: "codexModelId",
-    [KEY_CODEX_REASONING_EFFORT]: "codexReasoningEffort",
     [KEY_STT_PROVIDER]: "sttProvider",
     [KEY_GROQ_STT_MODEL]: "groqSttModel",
     [KEY_WHISPERCPP_BASE_URL]: "whispercppBaseURL",
@@ -985,10 +996,11 @@ export async function onPreferencesChange(
     [KEY_RECENT_MODELS]: "recentModelIds",
     [KEY_VIM_MODE]: "vimMode",
     [KEY_EDITOR_WORD_WRAP]: "editorWordWrap",
+    [KEY_EDITOR_WORD_WRAP_COLUMN]: "editorWordWrapColumn",
     [KEY_SHOW_HIDDEN]: "showHidden",
     [KEY_EXPLORER_GIT_DECORATIONS]: "explorerGitDecorations",
-    [KEY_TERMINAL_WEBGL_ENABLED]: "terminalWebglEnabled",
-    [KEY_TERMINAL_OSC52_CLIPBOARD]: "terminalOsc52Clipboard",
+    [KEY_TERMINAL_RENDERER]: "terminalRenderer",
+    [KEY_TERMINAL_SCREEN_READER]: "terminalScreenReader",
     [KEY_TERMINAL_CURSOR_BLINK]: "terminalCursorBlink",
     [KEY_TERMINAL_CURSOR_STYLE]: "terminalCursorStyle",
     [KEY_TERMINAL_FONT_FAMILY]: "terminalFontFamily",
@@ -997,13 +1009,14 @@ export async function onPreferencesChange(
     [KEY_TERMINAL_LETTER_SPACING]: "terminalLetterSpacing",
     [KEY_TERMINAL_FONT_SIZE]: "terminalFontSize",
     [KEY_TERMINAL_SCROLLBACK]: "terminalScrollback",
+    [KEY_CONFIRM_CLOSE_RUNNING_TERMINAL]: "confirmCloseRunningTerminal",
     [KEY_LAST_WSL_DISTRO]: "lastWslDistro",
     [KEY_ZOOM_LEVEL]: "zoomLevel",
     [KEY_AGENT_NOTIFICATIONS]: "agentNotifications",
+    [KEY_AGENT_NOTIFICATION_SOUND]: "agentNotificationSound",
     [KEY_AGENT_LAUNCH_COMMANDS]: "agentLaunchCommands",
     [KEY_DEFAULT_WORKSPACE_ENV]: "defaultWorkspaceEnv",
     [KEY_SHORTCUTS]: "shortcuts",
-    [KEY_SUBAGENT_MODEL_OVERRIDES]: "subagentModelOverrides",
     [KEY_EDITOR_AUTO_SAVE]: "editorAutoSave",
     [KEY_EDITOR_AUTO_SAVE_DELAY]: "editorAutoSaveDelay",
     [KEY_EDITOR_FORMAT_ON_SAVE]: "editorFormatOnSave",

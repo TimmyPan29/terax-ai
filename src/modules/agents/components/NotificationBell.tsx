@@ -6,7 +6,6 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import {
-  Cancel01Icon,
   ArrowDown01Icon,
   ArrowUp01Icon,
   CheckmarkCircle02Icon,
@@ -135,59 +134,41 @@ function HookAgentRow({
 function NotificationRow({
   n,
   onClick,
-  onRemove,
 }: {
   n: AgentNotification;
   onClick: () => void;
-  onRemove: () => void;
 }) {
   return (
-    <div
-      className="group relative flex w-full items-center gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-accent"
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-accent"
     >
-      <button
-        type="button"
-        onClick={onClick}
-        className="flex flex-1 items-center gap-2.5 text-left"
-      >
-        <span className="flex w-4 shrink-0 items-center justify-center">
-          {n.kind === "finished" ? (
-            <HugeiconsIcon
-              icon={CheckmarkCircle02Icon}
-              size={15}
-              strokeWidth={1.75}
-              className="text-muted-foreground"
-            />
-          ) : (
-            <span
-              className={cn(
-                "size-1.5 rounded-full",
-                n.kind === "error" ? "bg-destructive" : "bg-primary",
-              )}
-            />
-          )}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-          {displayAgent(n.agent)}{" "}
-          <span className="text-muted-foreground">{NOTIF_LABEL[n.kind]}</span>
-        </span>
-        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground group-hover:invisible">
-          {relativeTime(n.at)}
-        </span>
-      </button>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove();
-        }}
-        title="Dismiss"
-        aria-label="Dismiss notification"
-        className="absolute right-2 hidden size-5 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground group-hover:flex"
-      >
-        <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={1.75} />
-      </button>
-    </div>
+      <span className="flex w-4 shrink-0 items-center justify-center">
+        {n.kind === "finished" ? (
+          <HugeiconsIcon
+            icon={CheckmarkCircle02Icon}
+            size={15}
+            strokeWidth={1.75}
+            className="text-muted-foreground"
+          />
+        ) : (
+          <span
+            className={cn(
+              "size-1.5 rounded-full",
+              n.kind === "error" ? "bg-destructive" : "bg-primary",
+            )}
+          />
+        )}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+        {displayAgent(n.agent)}{" "}
+        <span className="text-muted-foreground">{NOTIF_LABEL[n.kind]}</span>
+      </span>
+      <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+        {relativeTime(n.at)}
+      </span>
+    </button>
   );
 }
 
@@ -200,7 +181,6 @@ export function NotificationBell({ onActivate, onActivateLocal }: Props) {
   const localAgent = useAgentStore((s) => s.localAgent);
   const notifications = useAgentStore((s) => s.notifications);
   const markAllRead = useAgentStore((s) => s.markAllRead);
-  const removeNotification = useAgentStore((s) => s.removeNotification);
   const clearNotifications = useAgentStore((s) => s.clearNotifications);
 
   const active = useMemo(() => Object.values(sessions), [sessions]);
@@ -340,7 +320,6 @@ export function NotificationBell({ onActivate, onActivateLocal }: Props) {
                 key={n.id}
                 n={n}
                 onClick={() => activateNotification(n)}
-                onRemove={() => removeNotification(n.id)}
               />
             ))}
           </div>

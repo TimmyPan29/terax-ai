@@ -1,8 +1,9 @@
+packages:
+  - packages/*
+
 minimumReleaseAge: 4320
 minimumReleaseAgeStrict: true
-overrides:
-  react-grab: 0.1.48
-onlyBuiltDependencies:
-  - esbuild
-  - msw
-verifyDepsBeforeRun: never
+allowBuilds:
+  esbuild: true
+  msgpackr-extract: false
+  msw: true

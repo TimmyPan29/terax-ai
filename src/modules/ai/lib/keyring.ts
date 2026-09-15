@@ -13,11 +13,8 @@ export type CustomEndpointKeys = Record<string, string | null>;
 
 export const EMPTY_PROVIDER_KEYS: ProviderKeys = {
   openai: null,
-  "openai-account": null,
-  "copilot-account": null,
   anthropic: null,
   google: null,
-  "google-account": null,
   xai: null,
   cerebras: null,
   groq: null,
@@ -54,11 +51,6 @@ export async function setKey(provider: ProviderId, key: string): Promise<void> {
     account: getProvider(provider).keyringAccount,
     password: trimmed,
   });
-  try {
-    localStorage.setItem(`has_key:${provider}`, "true");
-  } catch {
-    // ignore localStorage storage failures (e.g. private tabs)
-  }
 }
 
 export async function clearKey(provider: ProviderId): Promise<void> {
@@ -71,65 +63,28 @@ export async function clearKey(provider: ProviderId): Promise<void> {
   } catch {
     // already absent — fine
   }
-  try {
-    localStorage.setItem(`has_key:${provider}`, "false");
-  } catch {
-    // ignore
-  }
 }
 
 export async function getAllKeys(): Promise<ProviderKeys> {
   const out = { ...EMPTY_PROVIDER_KEYS };
   const need = PROVIDERS.filter((p) => providerSupportsKey(p.id));
-  const needCheck: typeof need = [];
-
-  for (const p of need) {
-    let cached: string | null = null;
-    try {
-      cached = localStorage.getItem(`has_key:${p.id}`);
-    } catch {
-      // ignore
-    }
-    if (cached === "true") {
-      out[p.id] = "••••••••";
-    } else if (cached === "false") {
-      out[p.id] = null;
-    } else {
-      needCheck.push(p);
-    }
+  try {
+    const results = await invoke<(string | null)[]>("secrets_get_all", {
+      service: KEYRING_SERVICE,
+      accounts: need.map((p) => p.keyringAccount),
+    });
+    need.forEach((p, i) => {
+      const v = results[i];
+      out[p.id] = v && v.length > 0 ? v : null;
+    });
+    return out;
+  } catch {
+    const entries = await Promise.all(
+      need.map(async (p) => [p.id, await getKey(p.id)] as const),
+    );
+    for (const [id, v] of entries) out[id] = v;
+    return out;
   }
-
-  if (needCheck.length > 0) {
-    try {
-      const results = await invoke<(string | null)[]>("secrets_get_all", {
-        service: KEYRING_SERVICE,
-        accounts: needCheck.map((p) => p.keyringAccount),
-      });
-      needCheck.forEach((p, i) => {
-        const v = results[i];
-        const hasKey = v && v.length > 0;
-        try {
-          localStorage.setItem(`has_key:${p.id}`, hasKey ? "true" : "false");
-        } catch {
-          // ignore
-        }
-        out[p.id] = hasKey ? "••••••••" : null;
-      });
-    } catch {
-      for (const p of needCheck) {
-        const v = await getKey(p.id);
-        const hasKey = !!v;
-        try {
-          localStorage.setItem(`has_key:${p.id}`, hasKey ? "true" : "false");
-        } catch {
-          // ignore
-        }
-        out[p.id] = hasKey ? "••••••••" : null;
-      }
-    }
-  }
-
-  return out;
 }
 
 export function hasAnyKey(keys: ProviderKeys): boolean {

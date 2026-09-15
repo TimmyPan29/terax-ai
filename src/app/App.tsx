@@ -48,10 +48,11 @@ import { setLspNavigator } from "@/modules/lsp";
 import type { PreviewPaneHandle } from "@/modules/preview";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { setShowHidden } from "@/modules/settings/store";
 import {
-  shouldDisablePaneSwapShortcut,
   type ShortcutHandlers,
   type ShortcutId,
+  shouldDisablePaneSwapShortcut,
   useGlobalShortcuts,
 } from "@/modules/shortcuts";
 import {
@@ -74,6 +75,7 @@ import {
 import { StatusBar } from "@/modules/statusbar";
 import {
   TabSwitcherHud,
+  type CloseTabsPlan,
   useTabSwitcher,
   useTabs,
   useWindowTitle,
@@ -85,27 +87,32 @@ import {
   disposeSession,
   findLeafCwd,
   hasLeaf,
+  isTerminalSurfaceTarget,
   leafIds,
   navigateFocusedBlocks,
-  ptyIdForLeaf,
   type PaneBounds,
+  ptyIdForLeaf,
   type TerminalPaneHandle,
   useAgentActivityStore,
   useTerminalFileDrop,
   whenSessionReady,
   writeToSession,
 } from "@/modules/terminal";
-import { ThemeProvider, useThemeFileEditing } from "@/modules/theme";
+import type { TerminalSearchController } from "@/modules/terminal/search/TerminalSearchController";
+import {
+  ThemeProvider,
+  useThemeFileEditing,
+  WindowVibrancyBridge,
+} from "@/modules/theme";
 import { UpdaterDialog } from "@/modules/updater";
 import {
   useWorkspaceEnvStore,
-  workspaceScopeKey,
   type WorkspaceEnv,
+  workspaceScopeKey,
 } from "@/modules/workspace";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { SearchAddon } from "@xterm/addon-search";
 import {
   useCallback,
   useEffect,
@@ -121,6 +128,11 @@ import {
 } from "./components/WorkspaceInputBar";
 import { WorkspaceSurface } from "./components/WorkspaceSurface";
 import { useAppCloseGuard } from "./hooks/useAppCloseGuard";
+import {
+  hasOpenPathTab,
+  renamedPath,
+  spacesEmptiedByTabs,
+} from "./hooks/tabCloseGuards";
 import { useTabCloseGuards } from "./hooks/useTabCloseGuards";
 import { useWorkspaceSwitcher } from "./hooks/useWorkspaceSwitcher";
 
@@ -156,6 +168,7 @@ export default function App() {
     openCommitHistoryTab,
     openCommitFileDiffTab,
     closeTab,
+    closeTabs,
     updateTab,
     selectByIndex,
     setLeafCwd,
@@ -179,9 +192,9 @@ export default function App() {
   }, [tabs, activeId]);
   const activeLeafId = activeTerminalTab?.activeLeafId ?? null;
 
-  const searchAddons = useRef<Map<number, SearchAddon>>(new Map());
+  const searchAddons = useRef<Map<number, TerminalSearchController>>(new Map());
   const [activeSearchAddon, setActiveSearchAddon] =
-    useState<SearchAddon | null>(null);
+    useState<TerminalSearchController | null>(null);
   const searchInlineRef = useRef<SearchInlineHandle | null>(null);
   const terminalRefs = useRef<Map<number, TerminalPaneHandle>>(new Map());
   const editorRefs = useRef<Map<number, EditorPaneHandle>>(new Map());
@@ -325,7 +338,6 @@ export default function App() {
   const miniOpen = useChatStore((s) => s.mini.open);
   const miniPresence = usePresence(miniOpen, 200);
   const openMini = useChatStore((s) => s.openMini);
-  const newSession = useChatStore((s) => s.newSession);
   const toggleMini = useChatStore((s) => s.toggleMini);
   const focusInput = useChatStore((s) => s.focusInput);
   const openPanel = useChatStore((s) => s.openPanel);
@@ -362,7 +374,7 @@ export default function App() {
   }, [activeId, activeLeafId]);
 
   const handleSearchReady = useCallback(
-    (leafId: number, addon: SearchAddon) => {
+    (leafId: number, addon: TerminalSearchController) => {
       searchAddons.current.set(leafId, addon);
       if (leafId === activeLeafId) setActiveSearchAddon(addon);
     },
@@ -381,19 +393,56 @@ export default function App() {
     [closeTab],
   );
 
+  const disposeTabs = useCallback(
+    (anchorId: number, plan: CloseTabsPlan) => {
+      const closedIds = closeTabs(anchorId, plan);
+      for (const id of closedIds) {
+        editorRefs.current.delete(id);
+        previewRefs.current.delete(id);
+      }
+    },
+    [closeTabs],
+  );
+
+  const disposeDeletedTabs = useCallback(
+    (ids: number[]) => {
+      if (ids.length === 0) return;
+      for (const spaceId of spacesEmptiedByTabs(tabsRef.current, ids)) {
+        const root = useSpaces
+          .getState()
+          .spaces.find((s) => s.id === spaceId)?.root;
+        newTabInSpace(spaceId, root ?? undefined);
+      }
+      for (const id of ids) disposeTab(id);
+    },
+    [disposeTab, newTabInSpace],
+  );
+
   const {
     pendingCloseTab,
     pendingTerminalCloseTab,
     pendingDeleteTabs,
+    pendingCloseMany,
+    closeManyConfirming,
     handleClose,
+    handleCloseTabsToRight,
+    handleCloseOtherTabs,
     confirmClose,
     cancelClose,
     confirmTerminalClose,
     cancelTerminalClose,
     confirmDeleteClose,
     cancelDeleteClose,
-    handlePathDeleted,
-  } = useTabCloseGuards({ tabs, disposeTab });
+    confirmCloseMany,
+    cancelCloseMany,
+    handlePathsDeleted,
+  } = useTabCloseGuards({
+    tabs,
+    activeId,
+    disposeTab,
+    disposeDeletedTabs,
+    disposeTabs,
+  });
 
   const { pendingAppClose, confirmAppClose, cancelAppClose } =
     useAppCloseGuard(tabsRef);
@@ -483,16 +532,13 @@ export default function App() {
       void openSettingsWindow("models");
       return;
     }
-    const store = useChatStore.getState();
-    if (panelOpen || miniOpen) {
-      store.closePanel();
-      store.closeMini();
+    if (panelOpen) {
+      useChatStore.getState().closePanel();
     } else {
       openPanel();
-      store.openMini();
       focusInput(null);
     }
-  }, [hasComposer, panelOpen, miniOpen, openPanel, focusInput]);
+  }, [hasComposer, panelOpen, openPanel, focusInput]);
 
   const attachSelection = useChatStore((s) => s.attachSelection);
 
@@ -667,25 +713,25 @@ export default function App() {
     })();
   }, [booted, openLaunchFiles]);
 
-  const handlePathRenamed = useCallback(
+  const handleExplorerPathRenamed = useCallback(
     (from: string, to: string) => {
-      for (const t of tabs) {
-        if (t.kind !== "editor") continue;
-        if (t.path === from) {
-          const i = to.lastIndexOf("/");
-          updateTab(t.id, { path: to, title: i === -1 ? to : to.slice(i + 1) });
-        } else if (t.path.startsWith(`${from}/`)) {
-          const suffix = t.path.slice(from.length);
-          const newPath = `${to}${suffix}`;
-          const i = newPath.lastIndexOf("/");
-          updateTab(t.id, {
-            path: newPath,
-            title: i === -1 ? newPath : newPath.slice(i + 1),
-          });
-        }
+      for (const tab of tabsRef.current) {
+        if (tab.kind !== "editor" && tab.kind !== "markdown") continue;
+        const path = renamedPath(tab.path, from, to);
+        if (path === null) continue;
+        const i = path.lastIndexOf("/");
+        updateTab(tab.id, {
+          path,
+          title: i === -1 ? path : path.slice(i + 1),
+        });
       }
     },
-    [tabs, updateTab],
+    [updateTab],
+  );
+
+  const canReplaceExplorerPath = useCallback(
+    (path: string) => !hasOpenPathTab(tabsRef.current, path),
+    [],
   );
 
   const activeTerminalLeafCwd =
@@ -716,8 +762,7 @@ export default function App() {
       : null;
   const isRepositoryContextCurrent = useCallback(
     (spaceId: string, workspaceKey: string) => {
-      const currentSpaceId =
-        useSpaces.getState().activeId ?? DEFAULT_SPACE_ID;
+      const currentSpaceId = useSpaces.getState().activeId ?? DEFAULT_SPACE_ID;
       const currentWorkspaceKey = workspaceScopeKey(
         useWorkspaceEnvStore.getState().env,
       );
@@ -727,6 +772,10 @@ export default function App() {
   );
   const openSourceControl = useCallback(() => {
     openSidebarView("source-control");
+  }, [openSidebarView]);
+  const toggleHiddenFiles = useCallback(() => {
+    openSidebarView("explorer");
+    void setShowHidden(!usePreferencesStore.getState().showHidden);
   }, [openSidebarView]);
   const {
     repositoryTarget: sourceControlRepositoryTarget,
@@ -868,10 +917,6 @@ export default function App() {
         else searchInlineRef.current?.focus();
       },
       "ai.toggle": togglePanelAndFocus,
-      "ai.newThread": () => {
-        newSession();
-        focusInput(null);
-      },
       "ai.toggleMini": () => {
         if (!hasComposer) {
           void openSettingsWindow("models");
@@ -884,10 +929,10 @@ export default function App() {
         const t = nextAttentionTarget();
         if (t) activateAgentTarget(t.tabId, t.leafId);
       },
-      "shortcuts.open": () => void openSettingsWindow("shortcuts"),
       "settings.open": () => void openSettingsWindow(),
       "sidebar.toggle": toggleSidebar,
       "explorer.focus": toggleExplorerFocus,
+      "explorer.toggleHidden": toggleHiddenFiles,
       "view.zoomIn": zoomIn,
       "view.zoomOut": zoomOut,
       "view.zoomReset": zoomReset,
@@ -917,12 +962,11 @@ export default function App() {
       toggleSourceControl,
       hasComposer,
       togglePanelAndFocus,
-      newSession,
-      focusInput,
       toggleMini,
       onAskFromSelection,
       toggleSidebar,
       toggleExplorerFocus,
+      toggleHiddenFiles,
       zoomIn,
       zoomOut,
       zoomReset,
@@ -945,34 +989,20 @@ export default function App() {
       ) {
         return activeTab?.kind !== "editor";
       }
-      if (id === "ai.newThread") {
-        // Enabled whenever the AI conversation popup is open, or when focus is
-        // inside the AI surface (popup or the docked input bar). Clicking the
-        // popup's non-focusable areas doesn't move focus there, so the open
-        // check is what lets Cmd+N fire after clicking anywhere in the window.
-        if (miniOpen) return false;
-        const target =
-          (e.target as HTMLElement | null) ?? document.activeElement;
-        return !(target as HTMLElement | null)?.closest?.(
-          "[data-ai-mini-window], [data-ai-input-bar]",
-        );
-      }
       if (id === "ai.askSelection") {
         const target =
           (e.target as HTMLElement | null) ?? document.activeElement;
-        const inTerminal = !!(target as HTMLElement | null)?.closest?.(
-          ".xterm",
-        );
+        const inTerminal = isTerminalSurfaceTarget(target);
         if (!inTerminal) return false;
         const sel = captureActiveSelection();
-        return !sel || !sel.trim();
+        return !sel?.trim();
       }
       if (id === "terminal.clear") {
         // Only intercept ⌘K while a terminal is focused; elsewhere let the key
         // fall through (we never preventDefault when disabled).
         const target =
           (e.target as HTMLElement | null) ?? document.activeElement;
-        return !(target as HTMLElement | null)?.closest?.(".xterm");
+        return !isTerminalSurfaceTarget(target);
       }
       if (
         id === "terminal.toggleInput" ||
@@ -987,48 +1017,17 @@ export default function App() {
         // sidebar. Ctrl+Shift+B (second binding) still toggles it from anywhere.
         const target =
           (e.target as HTMLElement | null) ?? document.activeElement;
-        const inTerminal = !!(target as HTMLElement | null)?.closest?.(
-          ".xterm",
-        );
+        const inTerminal = isTerminalSurfaceTarget(target);
         // Only defer the plain (no-shift) Ctrl/⌘+B binding; the Shift variant
         // is the always-on toggle and is never claimed by the terminal.
         return inTerminal && !e.shiftKey;
       }
       return false;
     },
-    [activeTab, miniOpen],
+    [activeTab, captureActiveSelection],
   );
 
   useGlobalShortcuts(shortcutHandlers, { isDisabled: shortcutsDisabled });
-
-  // Listen for native menu tab selections and new tab actions (bypasses iframe keyboard block)
-  useEffect(() => {
-    const unlistenSelect = listen<number>("terax:select-tab", (e) => {
-      const index = e.payload;
-      selectByIndex(index - 1);
-    });
-
-    const unlistenNew = listen<string>("terax:new-tab", (e) => {
-      const kind = e.payload;
-      if (kind === "terminal") {
-        openNewTab();
-      } else if (kind === "preview") {
-        openPreviewTab("");
-      } else if (kind === "editor") {
-        setNewEditorOpen(true);
-      }
-    });
-
-    const unlistenAiToggle = listen<void>("terax:ai-toggle", () => {
-      togglePanelAndFocus();
-    });
-
-    return () => {
-      void unlistenSelect.then((unlisten) => unlisten());
-      void unlistenNew.then((unlisten) => unlisten());
-      void unlistenAiToggle.then((unlisten) => unlisten());
-    };
-  }, [selectByIndex, openNewTab, openPreviewTab, setNewEditorOpen, togglePanelAndFocus]);
 
   const registerTerminalHandle = useCallback(
     (leafId: number, h: TerminalPaneHandle | null) => {
@@ -1257,6 +1256,7 @@ export default function App() {
             focusSearch: () => searchInlineRef.current?.focus(),
             focusExplorerSearch: () => explorerRef.current?.focusSearch(),
             toggleSidebar,
+            toggleHiddenFiles,
             toggleAi: togglePanelAndFocus,
             askAiSelection: askFromSelection,
             openSettings: () => void openSettingsWindow(),
@@ -1284,6 +1284,7 @@ export default function App() {
       handleCloseTabOrPane,
       splitActivePaneInActiveTab,
       toggleSidebar,
+      toggleHiddenFiles,
       togglePanelAndFocus,
       askFromSelection,
       activeSpaceId,
@@ -1376,7 +1377,7 @@ export default function App() {
   const shell = (
     <ThemeProvider>
       <TooltipProvider>
-        <div className="relative flex h-screen flex-col overflow-hidden bg-background text-foreground">
+        <div className="relative flex h-screen flex-col overflow-hidden bg-frame text-foreground">
           {!zenMode && (
             <Header
               tabs={spaceTabs}
@@ -1390,6 +1391,8 @@ export default function App() {
               onNewGitGraph={openGitGraphFromContext}
               onLaunchAgents={launchAgentGroup}
               onClose={handleClose}
+              onCloseTabsToRight={handleCloseTabsToRight}
+              onCloseOtherTabs={handleCloseOtherTabs}
               onPin={pinTab}
               onRename={handleRenameTab}
               onReorder={reorderTabByGap}
@@ -1430,89 +1433,94 @@ export default function App() {
                   persistSidebarCollapsed(size.inPixels <= 0);
                 }}
               >
-                <div className="flex h-full min-h-0 flex-col border-r border-border/60 bg-card">
-                  <div
-                    key={sidebarView}
-                    className="min-h-0 flex-1 terax-panel-in"
-                  >
-                    {sidebarView === "explorer" ? (
-                      <FileExplorer
-                        ref={explorerRef}
-                        rootPath={explorerRoot}
-                        gitStatus={
-                          explorerGitDecorations ? sourceControl.status : null
-                        }
-                        activeFilePath={explorerActiveFilePath}
-                        onOpenFile={handleOpenFile}
-                        onPathRenamed={handlePathRenamed}
-                        onPathDeleted={handlePathDeleted}
-                        onRevealInTerminal={cdInNewTab}
-                        onOpenInSourceControl={
-                          handleOpenRepositoryInSourceControl
-                        }
-                        onOpenGitHistory={handleOpenGitHistoryForPath}
-                        onAttachToAgent={handleAttachFileToAgent}
-                        pathDropTarget={terminalPathDropTarget}
-                      />
-                    ) : (
-                      <SourceControlPanel
-                        open
-                        sourceControl={sourceControl}
-                        onOpenDiff={openGitDiffTab}
-                        onOpenGitGraph={openGitGraphFromContext}
-                        onOpenFile={handleOpenFile}
-                        onNavigateToPath={cdInNewTab}
-                        repositoryTarget={sourceControlRepositoryTarget}
-                        onFollowRepositoryContext={
-                          handleFollowRepositoryContext
-                        }
-                      />
-                    )}
-                  </div>
-                  <SidebarRail
-                    activeView={sidebarView}
-                    onSelectView={persistSidebarView}
-                    changedCount={sourceControl.changedCount}
-                  />
-                </div>
-              </ResizablePanel>
-              <ResizableHandle withHandle />
-              <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
-                <div className="flex h-full min-h-0 flex-col">
-                  <div className="relative min-h-0 flex-1">
-                    <WorkspaceSurface
-                      tabs={tabs}
-                      activeId={activeId}
-                      activeTab={activeTab}
-                      registerTerminalHandle={registerTerminalHandle}
-                      onSearchReady={handleSearchReady}
-                      onCwd={handleTerminalCwd}
-                      onExit={handleLeafExit}
-                      onFocusLeaf={handleFocusLeaf}
-                      registerEditorHandle={registerEditorHandle}
-                      onEditorDirtyChange={handleEditorDirty}
-                      onEditorCloseTab={disposeTab}
-                      registerPreviewHandle={registerPreviewHandle}
-                      onPreviewUrlChange={handlePreviewUrl}
-                      onAiDiffAccept={(id) => respondToApproval(id, true)}
-                      onAiDiffReject={(id) => respondToApproval(id, false)}
-                      onOpenCommitFile={openCommitFileDiffTab}
-                      onGitHistorySearchHandle={setGitHistoryHandle}
-                      onSetMarkdownView={setMarkdownView}
+                <div className="h-full min-h-0 pl-2 pr-0.5">
+                  <div className="terax-pane flex h-full min-h-0 flex-col">
+                    <div
+                      key={sidebarView}
+                      className="min-h-0 flex-1 terax-panel-in"
+                    >
+                      {sidebarView === "explorer" ? (
+                        <FileExplorer
+                          ref={explorerRef}
+                          rootPath={explorerRoot}
+                          gitStatus={
+                            explorerGitDecorations ? sourceControl.status : null
+                          }
+                          activeFilePath={explorerActiveFilePath}
+                          onOpenFile={handleOpenFile}
+                          onPathRenamed={handleExplorerPathRenamed}
+                          onPathsDeleted={handlePathsDeleted}
+                          canReplacePath={canReplaceExplorerPath}
+                          onRevealInTerminal={cdInNewTab}
+                          onOpenInSourceControl={
+                            handleOpenRepositoryInSourceControl
+                          }
+                          onOpenGitHistory={handleOpenGitHistoryForPath}
+                          onAttachToAgent={handleAttachFileToAgent}
+                          pathDropTarget={terminalPathDropTarget}
+                        />
+                      ) : (
+                        <SourceControlPanel
+                          open
+                          sourceControl={sourceControl}
+                          onOpenDiff={openGitDiffTab}
+                          onOpenGitGraph={openGitGraphFromContext}
+                          onOpenFile={handleOpenFile}
+                          onNavigateToPath={cdInNewTab}
+                          repositoryTarget={sourceControlRepositoryTarget}
+                          onFollowRepositoryContext={
+                            handleFollowRepositoryContext
+                          }
+                        />
+                      )}
+                    </div>
+                    <SidebarRail
+                      activeView={sidebarView}
+                      onSelectView={persistSidebarView}
+                      changedCount={sourceControl.changedCount}
                     />
                   </div>
+                </div>
+              </ResizablePanel>
+              <ResizableHandle className="w-1 rounded-full bg-transparent transition-colors duration-[var(--dur-fast)] after:w-4 hover:bg-border" />
+              <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
+                <div className="h-full min-h-0 pl-0.5 pr-2">
+                  <div className="terax-pane flex h-full min-h-0 flex-col">
+                    <div className="relative min-h-0 flex-1">
+                      <WorkspaceSurface
+                        tabs={tabs}
+                        activeId={activeId}
+                        activeTab={activeTab}
+                        registerTerminalHandle={registerTerminalHandle}
+                        onSearchReady={handleSearchReady}
+                        onCwd={handleTerminalCwd}
+                        onExit={handleLeafExit}
+                        onFocusLeaf={handleFocusLeaf}
+                        registerEditorHandle={registerEditorHandle}
+                        onEditorDirtyChange={handleEditorDirty}
+                        onEditorCloseTab={disposeTab}
+                        registerPreviewHandle={registerPreviewHandle}
+                        onPreviewUrlChange={handlePreviewUrl}
+                        onAiDiffAccept={(id) => respondToApproval(id, true)}
+                        onAiDiffReject={(id) => respondToApproval(id, false)}
+                        onOpenCommitFile={openCommitFileDiffTab}
+                        onGitHistorySearchHandle={setGitHistoryHandle}
+                        onSetMarkdownView={setMarkdownView}
+                      />
+                    </div>
 
-                  <WorkspaceInputBar
-                    isBlockTab={isBlockTab}
-                    isTerminalTab={isTerminalTab}
-                    activeLeafId={activeLeafId}
-                    cwd={activeCwd}
-                    home={home}
-                    hasComposer={hasComposer}
-                    panelOpen={panelOpen}
-                    keysLoaded={keysLoaded}
-                    onConnect={() => void openSettingsWindow("models")}
-                  />
+                    <WorkspaceInputBar
+                      isBlockTab={isBlockTab}
+                      isTerminalTab={isTerminalTab}
+                      activeLeafId={activeLeafId}
+                      cwd={activeCwd}
+                      home={home}
+                      hasComposer={hasComposer}
+                      panelOpen={panelOpen}
+                      keysLoaded={keysLoaded}
+                      onConnect={() => void openSettingsWindow("models")}
+                    />
+                  </div>
                 </div>
               </ResizablePanel>
             </ResizablePanelGroup>
@@ -1533,6 +1541,8 @@ export default function App() {
               }
             />
           )}
+
+          <WindowVibrancyBridge />
 
           <AgentNotificationsBridge
             tabs={tabs}
@@ -1598,6 +1608,10 @@ export default function App() {
             pendingDeleteTabs={pendingDeleteTabs}
             onCancelDeleteClose={cancelDeleteClose}
             onConfirmDeleteClose={confirmDeleteClose}
+            pendingCloseMany={pendingCloseMany}
+            closeManyConfirming={closeManyConfirming}
+            onCancelCloseMany={cancelCloseMany}
+            onConfirmCloseMany={confirmCloseMany}
             pendingAppClose={pendingAppClose}
             onCancelAppClose={cancelAppClose}
             onConfirmAppClose={confirmAppClose}

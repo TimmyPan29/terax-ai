@@ -19,8 +19,6 @@ export type FileAttachment = {
   kind: "image" | "text" | "selection";
   mediaType: string;
   url?: string;
-  /** For kind === "image": a small, compressed preview shown on hover. */
-  thumbUrl?: string;
   text?: string;
   size: number;
   /** For kind === "selection": which surface it came from. */
@@ -42,7 +40,7 @@ type ComposerCtx = {
   value: string;
   setValue: React.Dispatch<React.SetStateAction<string>>;
   files: FileAttachment[];
-  addFiles: (list: FileList | File[] | null) => Promise<void>;
+  addFiles: (list: FileList | null) => Promise<void>;
   /** Attach a file by absolute path — used by the file explorer's "Attach to Agent". */
   attachFileByPath: (path: string) => Promise<void>;
   removeFile: (id: string) => void;
@@ -154,7 +152,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
     },
   });
 
-  const addFiles = async (list: FileList | File[] | null) => {
+  const addFiles = async (list: FileList | null) => {
     if (!list) return;
     const next: FileAttachment[] = [];
     for (const f of Array.from(list)) {
@@ -264,46 +262,31 @@ export function AiComposerProvider({ children }: ProviderProps) {
         (f) =>
           `<selection source="${f.source ?? "terminal"}">\n${f.text ?? ""}\n</selection>`,
       );
-    const { body: bodyAfterTokens, matchedSnippets } = expandSnippetTokens(
+    const { body: bodyAfterTokens, blocks: snippetBlocks } = expandSnippetTokens(
       effectiveText,
       useSnippetsStore.getState().snippets,
     );
     const seenHandles = new Set<string>();
     const allSnippetBlocks: string[] = [];
-    
-    let finalBody = bodyAfterTokens;
-    let argumentReplaced = false;
-
-    const processSnippet = (s: Snippet) => {
-      if (seenHandles.has(s.handle)) return;
-      seenHandles.add(s.handle);
-      let content = s.content;
-      if (content.includes("{argument}")) {
-        content = content.replace(/\{argument\}/g, bodyAfterTokens);
-        argumentReplaced = true;
-      }
-      allSnippetBlocks.push(
-        `<snippet name="${s.handle}">\n${content}\n</snippet>`,
-      );
-    };
-
     for (const s of pickedSnippets) {
-      processSnippet(s);
+      if (seenHandles.has(s.handle)) continue;
+      seenHandles.add(s.handle);
+      allSnippetBlocks.push(
+        `<snippet name="${s.handle}">\n${s.content}\n</snippet>`,
+      );
     }
-    for (const s of matchedSnippets) {
-      processSnippet(s);
+    for (const block of snippetBlocks) {
+      const m = block.match(/^<snippet name="([^"]+)"/);
+      if (m && seenHandles.has(m[1])) continue;
+      if (m) seenHandles.add(m[1]);
+      allSnippetBlocks.push(block);
     }
-
-    if (argumentReplaced) {
-      finalBody = "";
-    }
-
     const composed = [
       commandMarker ?? "",
       allSnippetBlocks.join("\n\n"),
       selectionBlocks.join("\n\n"),
       fileBlocks.join("\n\n"),
-      finalBody,
+      bodyAfterTokens,
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -379,14 +362,12 @@ async function readAttachment(file: File): Promise<FileAttachment | null> {
   const id = `${file.name}-${file.size}-${file.lastModified}`;
   if (file.type.startsWith("image/")) {
     const url = await readAsDataURL(file);
-    const thumbUrl = await makeThumbnail(url).catch(() => undefined);
     return {
       id,
       name: file.name,
       kind: "image",
       mediaType: file.type || "image/png",
       url,
-      thumbUrl,
       size: file.size,
     };
   }
@@ -408,35 +389,5 @@ function readAsDataURL(file: Blob): Promise<string> {
     reader.onload = () => resolve(String(reader.result ?? ""));
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
-  });
-}
-
-/** Downscale an image data URL to a small, compressed preview for hover. */
-const THUMB_MAX_DIM = 160;
-function makeThumbnail(dataUrl: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const { width, height } = img;
-      if (!width || !height) {
-        resolve(dataUrl);
-        return;
-      }
-      const scale = Math.min(1, THUMB_MAX_DIM / Math.max(width, height));
-      const w = Math.max(1, Math.round(width * scale));
-      const h = Math.max(1, Math.round(height * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        resolve(dataUrl);
-        return;
-      }
-      ctx.drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL("image/jpeg", 0.7));
-    };
-    img.onerror = () => reject(new Error("thumbnail decode failed"));
-    img.src = dataUrl;
   });
 }
