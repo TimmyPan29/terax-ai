@@ -172,7 +172,18 @@ export function useDocument({ path, onDirtyChange }: Options) {
     if (dirtyRef.current) return false;
     void readFromDisk(forceRef.current)
       .then((res) => {
-        if (!dirtyRef.current) adoptRead(res, true);
+        if (!dirtyRef.current) {
+          adoptRead(res, true);
+          if (res.kind === "binary" && res.size === 0) {
+            setTimeout(() => {
+              if (!dirtyRef.current) {
+                void readFromDisk(forceRef.current).then((retryRes) => {
+                  if (!dirtyRef.current) adoptRead(retryRes, true);
+                });
+              }
+            }, 200);
+          }
+        }
       })
       // Transient failures (e.g. ENOENT mid atomic-rename) must not replace
       // a healthy buffer with an error screen.

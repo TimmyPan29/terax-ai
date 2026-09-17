@@ -16,7 +16,10 @@ import {
 import { Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { vim } from "@replit/codemirror-vim";
+import { LinkSquare02Icon, Refresh01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import {
   forwardRef,
@@ -125,6 +128,7 @@ export const EditorPane = memo(
     );
     const languageRef = useRef<string | null>(null);
     const [langId, setLangId] = useState<string | null>(null);
+    const [reloadRevision, setReloadRevision] = useState(0);
     const apiKeyRef = useRef<string | null>(null);
 
     useEffect(() => {
@@ -517,7 +521,10 @@ export const EditorPane = memo(
           return view.state.sliceDoc(from, to);
         },
         getPath: () => path,
-        reload: () => reloadRef.current(),
+        reload: () => {
+          setReloadRevision((r) => r + 1);
+          return reloadRef.current();
+        },
         gotoLine: (line: number, options) => {
           pendingLineRef.current = {
             path,
@@ -577,7 +584,54 @@ export const EditorPane = memo(
       const isAudio = ["mp3", "wav", "flac", "aac", "m4a"].includes(ext);
       const isPdf = ext === "pdf";
 
-      if (isImage || isVideo || isAudio || isPdf) {
+      if (isPdf) {
+        const assetUrl = `${convertFileSrc(path)}?v=${reloadRevision}`;
+        return (
+          <div className="zoom-exempt relative h-full min-h-0 w-full min-w-0 overflow-hidden bg-background">
+            <iframe
+              key={`${path}#${reloadRevision}`}
+              src={assetUrl}
+              className="block h-full w-full min-w-0 border-0"
+              title={path.split("/").pop()}
+            />
+            <div className="absolute top-2.5 right-3 z-10 flex items-center gap-1 rounded-md border border-border/60 bg-background/80 p-1 opacity-60 shadow-sm backdrop-blur-sm transition-opacity hover:opacity-100">
+              <button
+                type="button"
+                title="Reload PDF"
+                aria-label="Reload PDF"
+                onClick={() => {
+                  setReloadRevision((r) => r + 1);
+                  reloadRef.current();
+                }}
+                className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+              >
+                <HugeiconsIcon
+                  icon={Refresh01Icon}
+                  size={14}
+                  strokeWidth={1.75}
+                />
+              </button>
+              <button
+                type="button"
+                title="Open in system viewer"
+                aria-label="Open in system viewer"
+                onClick={() =>
+                  void openUrl(convertFileSrc(path)).catch(console.error)
+                }
+                className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+              >
+                <HugeiconsIcon
+                  icon={LinkSquare02Icon}
+                  size={14}
+                  strokeWidth={1.75}
+                />
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      if (isImage || isVideo || isAudio) {
         const assetUrl = convertFileSrc(path);
         return (
           <div className="flex h-full min-h-0 flex-col items-center justify-center bg-background p-4 overflow-auto">
@@ -611,13 +665,6 @@ export const EditorPane = memo(
                 preload="metadata"
                 className="w-full max-w-md"
                 src={assetUrl}
-              />
-            )}
-            {isPdf && (
-              <iframe
-                src={assetUrl}
-                className="w-full h-full border-none"
-                title={path.split("/").pop()}
               />
             )}
           </div>
