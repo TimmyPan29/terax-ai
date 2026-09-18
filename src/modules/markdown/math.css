@@ -1,0 +1,58 @@
+.markdown-math-block {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.25rem;
+}
+
+.markdown-math-block .katex-display {
+  margin: 0.5rem 0;
+}
+
+.markdown-math-block .katex-display > .katex {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+}
+
+.markdown-math-error {
+  color: var(--destructive);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.markdown-math-error-label {
+  display: inline-block;
+  margin-inline-start: 0.5rem;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+}
+
+/* Table cell formulas */
+td .markdown-math-inline,
+th .markdown-math-inline {
+  vertical-align: middle;
+}
+
+td .markdown-math-block,
+th .markdown-math-block {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.125rem;
+}
+
+td .markdown-math-block .katex-display,
+th .markdown-math-block .katex-display {
+  margin: 0.25rem 0;
+}
+
+[data-streamdown="table-wrapper"] {
+  max-width: 100%;
+}
+
+table[data-streamdown="table"] {
+  max-width: 100%;
+}

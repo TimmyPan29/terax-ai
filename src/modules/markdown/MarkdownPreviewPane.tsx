@@ -1,10 +1,9 @@
-import { MarkdownCode } from "@/components/ai-elements/markdown-code";
 import { cn } from "@/lib/utils";
 import { currentWorkspaceEnv } from "@/modules/workspace";
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Streamdown } from "streamdown";
-import { MarkdownLink } from "./MarkdownLink";
+import { markdownComponents } from "./markdownComponents";
 import { MarkdownViewToggle } from "./MarkdownViewToggle";
 
 type ReadResult =
@@ -25,7 +24,7 @@ type Props = {
   onSetView: (mode: "rendered" | "raw") => void;
 };
 
-const components = { a: MarkdownLink, code: MarkdownCode };
+const MarkdownMath = lazy(() => import("./MarkdownMath"));
 
 export function MarkdownPreviewPane({ path, visible, onSetView }: Props) {
   const [status, setStatus] = useState<Status>({ kind: "loading" });
@@ -83,16 +82,27 @@ export function MarkdownPreviewPane({ path, visible, onSetView }: Props) {
               File is {status.size} bytes; limit {status.limit}.
             </p>
           )}
-          {status.kind === "ready" && (
-            <Streamdown
-              className="select-text [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
-              components={components}
-              mode="static"
-              parseIncompleteMarkdown={false}
-            >
-              {status.content}
-            </Streamdown>
-          )}
+          {status.kind === "ready" &&
+            (/\\[([]|\$\$|\$[^$\s]/.test(status.content) ? (
+              <Suspense
+                fallback={
+                  <p className="text-[12px] text-muted-foreground">
+                    Loading math…
+                  </p>
+                }
+              >
+                <MarkdownMath content={status.content} />
+              </Suspense>
+            ) : (
+              <Streamdown
+                className="select-text [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+                components={markdownComponents}
+                mode="static"
+                parseIncompleteMarkdown={false}
+              >
+                {status.content}
+              </Streamdown>
+            ))}
         </div>
       </div>
     </div>
