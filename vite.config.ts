@@ -125,6 +125,8 @@ export default defineConfig(async ({ mode }): Promise<UserConfig> => ({
             id.includes("@replit/codemirror")
           )
             return "codemirror";
+          if (id.includes("/mermaid/") || id.includes("@streamdown/mermaid"))
+            return "markdown-mermaid";
           if (id.includes("/katex/")) return "markdown-katex";
           if (id.includes("@streamdown/math")) return null;
           if (id.includes("/streamdown/") || id.includes("@streamdown/"))

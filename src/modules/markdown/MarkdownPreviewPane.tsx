@@ -25,6 +25,8 @@ type Props = {
 };
 
 const MarkdownMath = lazy(() => import("./MarkdownMath"));
+const MarkdownMermaid = lazy(() => import("./MarkdownMermaid"));
+const MarkdownFull = lazy(() => import("./MarkdownFull"));
 
 export function MarkdownPreviewPane({ path, visible, onSetView }: Props) {
   const [status, setStatus] = useState<Status>({ kind: "loading" });
@@ -74,7 +76,7 @@ export function MarkdownPreviewPane({ path, visible, onSetView }: Props) {
           )}
           {status.kind === "binary" && (
             <p className="text-[12px] text-muted-foreground">
-              Binary file — cannot render as markdown.
+              Binary file - cannot render as markdown.
             </p>
           )}
           {status.kind === "toolarge" && (
@@ -83,26 +85,65 @@ export function MarkdownPreviewPane({ path, visible, onSetView }: Props) {
             </p>
           )}
           {status.kind === "ready" &&
-            (/\\[([]|\$\$|\$[^$\s]/.test(status.content) ? (
-              <Suspense
-                fallback={
-                  <p className="text-[12px] text-muted-foreground">
-                    Loading math…
-                  </p>
-                }
-              >
-                <MarkdownMath content={status.content} />
-              </Suspense>
-            ) : (
-              <Streamdown
-                className="select-text [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
-                components={markdownComponents}
-                mode="static"
-                parseIncompleteMarkdown={false}
-              >
-                {status.content}
-              </Streamdown>
-            ))}
+            (() => {
+              const hasMath = /\\[([]|\$\$|\$[^$\s]/.test(status.content);
+              const hasMermaid = /(?:```|~~~)mermaid(?:[\s{]|$)/.test(
+                status.content,
+              );
+
+              if (hasMath && hasMermaid) {
+                return (
+                  <Suspense
+                    fallback={
+                      <p className="text-[12px] text-muted-foreground">
+                        Loading preview…
+                      </p>
+                    }
+                  >
+                    <MarkdownFull content={status.content} />
+                  </Suspense>
+                );
+              }
+
+              if (hasMath) {
+                return (
+                  <Suspense
+                    fallback={
+                      <p className="text-[12px] text-muted-foreground">
+                        Loading math…
+                      </p>
+                    }
+                  >
+                    <MarkdownMath content={status.content} />
+                  </Suspense>
+                );
+              }
+
+              if (hasMermaid) {
+                return (
+                  <Suspense
+                    fallback={
+                      <p className="text-[12px] text-muted-foreground">
+                        Loading diagram…
+                      </p>
+                    }
+                  >
+                    <MarkdownMermaid content={status.content} />
+                  </Suspense>
+                );
+              }
+
+              return (
+                <Streamdown
+                  className="select-text [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+                  components={markdownComponents}
+                  mode="static"
+                  parseIncompleteMarkdown={false}
+                >
+                  {status.content}
+                </Streamdown>
+              );
+            })()}
         </div>
       </div>
     </div>

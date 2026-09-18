@@ -16,4 +16,10 @@ describe("MarkdownPreviewPane Streamdown configuration", () => {
   it("does not run streaming incomplete-markdown repair for files", () => {
     expect(streamdownJsx).toMatch(/parseIncompleteMarkdown=\{false\}/);
   });
+
+  it("lazily imports MarkdownMermaid and MarkdownFull for on-demand diagram rendering", () => {
+    expect(src).toContain('lazy(() => import("./MarkdownMermaid"))');
+    expect(src).toContain('lazy(() => import("./MarkdownFull"))');
+    expect(src).toContain('lazy(() => import("./MarkdownMath"))');
+  });
 });

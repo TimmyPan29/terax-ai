@@ -69,6 +69,7 @@
     "@replit/codemirror-lang-svelte": "^6.0.0",
     "@replit/codemirror-vim": "^6.4.0",
     "@streamdown/math": "^1.0.2",
+    "@streamdown/mermaid": "^1.0.2",
     "@tanstack/react-virtual": "^3.14.11",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-autostart": "~2.5.1",
