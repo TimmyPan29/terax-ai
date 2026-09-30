@@ -49,38 +49,40 @@ export function useGlobalShortcuts(
         !e.ctrlKey &&
         !e.altKey &&
         !e.shiftKey &&
-        e.key.toLowerCase() === "w"
+        ["w", "t"].includes(e.key.toLowerCase())
       )
         return;
       onKey(e);
     };
     let disposed = false;
-    let unlisten: (() => void) | undefined;
+    const unlisteners: Array<() => void> = [];
     if (IS_MAC) {
-      void getCurrentWindow()
-        .listen("terax:close-pane", () => {
-          if (!disposed) {
-            onKey(
-              new KeyboardEvent("keydown", {
-                key: "w",
-                code: "KeyW",
-                metaKey: true,
-              }),
+      for (const [event, key, code] of [
+        ["terax:close-pane", "w", "KeyW"],
+        ["terax:new-terminal", "t", "KeyT"],
+      ] as const) {
+        void getCurrentWindow()
+          .listen(event, () => {
+            if (!disposed) {
+              onKey(new KeyboardEvent("keydown", { key, code, metaKey: true }));
+            }
+          })
+          .then((off) => {
+            if (disposed) off();
+            else unlisteners.push(off);
+          })
+          .catch((error: unknown) => {
+            console.error(
+              `Could not listen for native shortcut ${event}`,
+              error,
             );
-          }
-        })
-        .then((off) => {
-          if (disposed) off();
-          else unlisten = off;
-        })
-        .catch((error: unknown) => {
-          console.error("Could not listen for native pane close", error);
-        });
+          });
+      }
     }
     window.addEventListener("keydown", onDomKey, { capture: true });
     return () => {
       disposed = true;
-      unlisten?.();
+      for (const off of unlisteners) off();
       window.removeEventListener("keydown", onDomKey, { capture: true });
     };
   }, [userShortcuts]);

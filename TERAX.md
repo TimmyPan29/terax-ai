@@ -69,7 +69,8 @@ platforms. Context clicks expose the selected text through the input element to
 restore the webview's native text menu; no persistent DOM scrollback is maintained.
 Unclaimed macOS Command shortcuts reach the native menu after explicit clipboard,
 block-editor, and readline bindings, including when Kitty keyboard mode is active.
-The native Close Tab or Pane menu owns Cmd-W and forwards it to the focused
+The native New Terminal Tab and Close Tab or Pane menus own Cmd-T and Cmd-W
+and forward them to the focused
 main window's shortcut dispatcher, including when a PDF or preview iframe has
 focus. Duplicate native Close Window items have no accelerator. Tab and terminal
 pane closure retains the app's close guards; auxiliary windows close themselves.
