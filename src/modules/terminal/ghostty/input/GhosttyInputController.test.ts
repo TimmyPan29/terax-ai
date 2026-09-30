@@ -195,6 +195,156 @@ describe("GhosttyInputController", () => {
     },
   );
 
+  it.each(["ghostty-vt.wasm", "ghostty-vt-scalar.wasm"])(
+    "types shifted symbols once in legacy and CLI keyboard modes (%s)",
+    async (artifact) => {
+      const bytes = await readFile(
+        new URL(
+          `../../../../../packages/ghostty-core/adapted/${artifact}`,
+          import.meta.url,
+        ),
+      );
+      const core = await TeraxGhostty.loadBytes(Uint8Array.from(bytes).buffer);
+      const terminal = core.createTerminal(80, 24);
+      const input = new FakeTextArea();
+      const onData = vi.fn();
+      const controller = new GhosttyInputController({
+        model: {
+          ...inputModel(),
+          encodeKey: (event) => terminal.encodeKey(event),
+        },
+        input: input as unknown as HTMLTextAreaElement,
+        pointerTarget: new FakeElement() as unknown as HTMLElement,
+        cellSize: () => ({ width: 10, height: 20 }),
+        isMac: true,
+        onCopy: () => false,
+        onData,
+      });
+      try {
+        for (const screen of ["\x1b[?1049l", "\x1b[?1049h"]) {
+          terminal.write(new TextEncoder().encode(screen));
+          for (const mode of [0, 1, 3, 5, 7]) {
+            terminal.write(new TextEncoder().encode(`\x1b[=${mode}u`));
+            for (const [code, key] of [
+              ["Digit2", "@"],
+              ...Array.from(")!@#$%^&*(", (key, digit) => [
+                `Digit${digit}`,
+                key,
+              ]),
+              ["Backquote", "~"],
+              ["Minus", "_"],
+              ["Equal", "+"],
+              ["BracketLeft", "{"],
+              ["BracketRight", "}"],
+              ["Backslash", "|"],
+              ["Semicolon", ":"],
+              ["Quote", '"'],
+              ["Comma", "<"],
+              ["Period", ">"],
+              ["Slash", "?"],
+              ["KeyA", "A"],
+            ]) {
+              onData.mockClear();
+              input.dispatchEvent(keyboardEvent({ key, code, shiftKey: true }));
+              input.dispatchEvent(
+                Object.assign(new Event("beforeinput", { cancelable: true }), {
+                  inputType: "insertText",
+                  data: key,
+                  isComposing: false,
+                }),
+              );
+              expect(onData, `${code} in mode ${mode}`).toHaveBeenCalledOnce();
+              expect(
+                new TextDecoder().decode(onData.mock.calls[0][0]),
+                `${code} in mode ${mode}`,
+              ).toBe(key);
+            }
+          }
+        }
+      } finally {
+        controller.dispose();
+        terminal.dispose();
+      }
+    },
+  );
+
+  it.each(["ghostty-vt.wasm", "ghostty-vt-scalar.wasm"])(
+    "preserves explicit keyboard reporting and Shift shortcuts (%s)",
+    async (artifact) => {
+      const bytes = await readFile(
+        new URL(
+          `../../../../../packages/ghostty-core/adapted/${artifact}`,
+          import.meta.url,
+        ),
+      );
+      const core = await TeraxGhostty.loadBytes(Uint8Array.from(bytes).buffer);
+      const terminal = core.createTerminal(80, 24);
+      const input = new FakeTextArea();
+      const onData = vi.fn();
+      const controller = new GhosttyInputController({
+        model: {
+          ...inputModel(),
+          encodeKey: (event) => terminal.encodeKey(event),
+        },
+        input: input as unknown as HTMLTextAreaElement,
+        pointerTarget: new FakeElement() as unknown as HTMLElement,
+        cellSize: () => ({ width: 10, height: 20 }),
+        isMac: true,
+        onCopy: () => false,
+        onData,
+      });
+      const decode = () =>
+        onData.mock.calls.map(([bytes]) => new TextDecoder().decode(bytes));
+      try {
+        terminal.write(new TextEncoder().encode("\x1b[=1u"));
+        input.dispatchEvent(
+          keyboardEvent({
+            key: "C",
+            code: "KeyC",
+            ctrlKey: true,
+            shiftKey: true,
+          }),
+        );
+        expect(decode()).toEqual(["\x1b[99;6u"]);
+        onData.mockClear();
+        input.dispatchEvent(
+          keyboardEvent({ key: " ", code: "Space", shiftKey: true }),
+        );
+        expect(decode()).toEqual(["\x1b[32;2u"]);
+        onData.mockClear();
+        terminal.write(new TextEncoder().encode("\x1b[=11u"));
+        input.dispatchEvent(
+          keyboardEvent({ key: "@", code: "Digit2", shiftKey: true }),
+        );
+        input.dispatchEvent(
+          keyboardEvent({
+            key: "@",
+            code: "Digit2",
+            shiftKey: true,
+            repeat: true,
+          }),
+        );
+        input.dispatchEvent(
+          keyboardEvent({ key: "@", code: "Digit2", shiftKey: true }, "keyup"),
+        );
+        expect(decode()).toEqual([
+          "\x1b[50;2u",
+          "\x1b[50;2:2u",
+          "\x1b[50;2:3u",
+        ]);
+        onData.mockClear();
+        terminal.write(new TextEncoder().encode("\x1b[=31u"));
+        input.dispatchEvent(
+          keyboardEvent({ key: "@", code: "Digit2", shiftKey: true }),
+        );
+        expect(decode()).toEqual(["\x1b[50:64;2;64u"]);
+      } finally {
+        controller.dispose();
+        terminal.dispose();
+      }
+    },
+  );
+
   it("routes prompt paste to the command editor without also sending PTY bytes", () => {
     const model = inputModel();
     const onData = vi.fn();

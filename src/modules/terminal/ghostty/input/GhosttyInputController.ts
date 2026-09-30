@@ -324,6 +324,7 @@ export class GhosttyInputController {
       action: event.repeat ? KeyAction.REPEAT : KeyAction.PRESS,
       key,
       mods: modifiers(event),
+      consumedMods: consumedModifiers(event),
       utf8: event.key.length === 1 ? event.key : undefined,
       unshiftedCodepoint: unshiftedCodepoint(event),
     };
@@ -625,6 +626,17 @@ const UNSHIFTED_SYMBOLS: Readonly<Record<string, string>> = {
   Semicolon: ";:",
   Slash: "/?",
 };
+
+function consumedModifiers(event: KeyboardEvent): Mods {
+  return event.shiftKey &&
+    event.key.length === 1 &&
+    event.key !== " " &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.metaKey
+    ? Mods.SHIFT
+    : Mods.NONE;
+}
 
 function unshiftedCodepoint(event: KeyboardEvent): number {
   const character = event.key.toLowerCase().codePointAt(0) ?? 0;

@@ -75,6 +75,9 @@ Character drags retain a native selection pin from pointerdown, including before
 the first pointermove. Unmoved clicks and lost captures discard provisional pins.
 Key encoding supplies the base character required by Kitty keyboard mode; plain
 keys and key releases also use Ghostty encoding when the application requests it.
+Printable Shift transformations also supply consumed modifier metadata so symbols
+remain text in compatible keyboard modes. Shortcut modifiers and explicit reporting
+of all keys, repeats and releases retain Ghostty's native encoding.
 Terminal text uses the configured font, an installed Nerd Font when detected,
 or bundled JetBrains Mono. Private-use prompt symbols require an installed font
 that supplies them; Terax does not ship a separate symbol font. Native color
