@@ -69,8 +69,10 @@ platforms. Context clicks expose the selected text through the input element to
 restore the webview's native text menu; no persistent DOM scrollback is maintained.
 Unclaimed macOS Command shortcuts reach the native menu after explicit clipboard,
 block-editor, and readline bindings, including when Kitty keyboard mode is active.
-Native Close Window items in File and Window are disabled without accelerators,
-leaving Cmd-W to close the active tab or terminal pane through the app's close guards.
+The native Close Tab or Pane menu owns Cmd-W and forwards it to the focused
+main window's shortcut dispatcher, including when a PDF or preview iframe has
+focus. Duplicate native Close Window items have no accelerator. Tab and terminal
+pane closure retains the app's close guards; auxiliary windows close themselves.
 The block prompt retains an enabled terminal input proxy for native menus and
 routes editing keys, composed text and paste back to its command editor.
 Character drags retain a native selection pin from pointerdown, including before

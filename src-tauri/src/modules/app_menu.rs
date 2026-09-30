@@ -2,10 +2,12 @@ use std::io;
 
 use tauri::{
     menu::{Menu, MenuEvent, MenuId, MenuItem},
-    AppHandle, Manager, Runtime,
+    AppHandle, Emitter, Manager, Runtime,
 };
 
 const GUARDED_QUIT_MENU_ID: &str = "terax.quit";
+const CLOSE_PANE_MENU_ID: &str = "terax.close-pane";
+const CLOSE_PANE_EVENT: &str = "terax:close-pane";
 const QUIT_ACCELERATOR: &str = "Command+Q";
 
 fn invalid_default_menu(message: &'static str) -> tauri::Error {
@@ -16,7 +18,7 @@ fn is_guarded_quit(id: &MenuId) -> bool {
     id == GUARDED_QUIT_MENU_ID
 }
 
-fn disable_window_close<R: Runtime>(app: &AppHandle<R>, menu: &Menu<R>) -> tauri::Result<()> {
+fn replace_window_close<R: Runtime>(app: &AppHandle<R>, menu: &Menu<R>) -> tauri::Result<()> {
     let mut replaced = false;
     for item in menu.items()? {
         let Some(submenu) = item.as_submenu() else {
@@ -30,9 +32,19 @@ fn disable_window_close<R: Runtime>(app: &AppHandle<R>, menu: &Menu<R>) -> tauri
             if text != "Close Window" {
                 continue;
             }
-            let disabled = MenuItem::new(app, text, false, None::<&str>)?;
+            let replacement = if replaced {
+                MenuItem::new(app, text, false, None::<&str>)?
+            } else {
+                MenuItem::with_id(
+                    app,
+                    CLOSE_PANE_MENU_ID,
+                    "Close Tab or Pane",
+                    true,
+                    Some("Command+W"),
+                )?
+            };
             submenu.remove_at(index)?;
-            submenu.insert(&disabled, index)?;
+            submenu.insert(&replacement, index)?;
             replaced = true;
         }
     }
@@ -46,7 +58,7 @@ fn disable_window_close<R: Runtime>(app: &AppHandle<R>, menu: &Menu<R>) -> tauri
 
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let menu = Menu::default(app)?;
-    disable_window_close(app, &menu)?;
+    replace_window_close(app, &menu)?;
     let app_menu = menu
         .items()?
         .into_iter()
@@ -82,6 +94,23 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 }
 
 pub fn handle_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
+    if event.id() == CLOSE_PANE_MENU_ID {
+        if let Some(window) = app
+            .webview_windows()
+            .into_values()
+            .find(|window| window.is_focused().unwrap_or(false))
+        {
+            let result = if window.label() == "main" {
+                window.emit(CLOSE_PANE_EVENT, ())
+            } else {
+                window.close()
+            };
+            if let Err(error) = result {
+                log::error!("could not request guarded pane close: {error}");
+            }
+        }
+        return;
+    }
     if !is_guarded_quit(event.id()) {
         return;
     }
@@ -101,12 +130,13 @@ pub fn handle_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_guarded_quit, GUARDED_QUIT_MENU_ID};
+    use super::{is_guarded_quit, CLOSE_PANE_MENU_ID, GUARDED_QUIT_MENU_ID};
     use tauri::menu::MenuId;
 
     #[test]
     fn only_guarded_quit_id_requests_window_close() {
         assert!(is_guarded_quit(&MenuId::new(GUARDED_QUIT_MENU_ID)));
         assert!(!is_guarded_quit(&MenuId::new("unrelated")));
+        assert!(!is_guarded_quit(&MenuId::new(CLOSE_PANE_MENU_ID)));
     }
 }
