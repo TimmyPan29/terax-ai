@@ -1,3 +1,4 @@
+import { isImeCommitEnter } from "@/lib/ime";
 import { terminalReadlineSequence } from "@/modules/terminal/lib/keymap";
 import { readTerminalClipboard } from "@/modules/terminal/lib/terminalClipboard";
 import {
@@ -151,6 +152,7 @@ export class GhosttyInputController {
   private readonly nativeSelection: TerminalNativeSelection | null;
   private readonly pressedKeys = new Map<string, KeyEvent>();
   private composing = false;
+  private lastCompositionEnd: number | null = null;
   private mouseButtons = 0;
   private lastData = "";
   private lastSource: InputSource | null = null;
@@ -173,9 +175,11 @@ export class GhosttyInputController {
     options.input.addEventListener("keydown", this.handleKeyDown);
     options.input.addEventListener("keyup", this.handleKeyUp);
     options.input.addEventListener("beforeinput", this.handleBeforeInput);
+    options.input.addEventListener("input", this.handleInput);
     options.input.addEventListener(
       "compositionstart",
       this.handleCompositionStart,
+      true,
     );
     options.input.addEventListener("compositionend", this.handleCompositionEnd);
     options.input.addEventListener("paste", this.handlePaste);
@@ -209,7 +213,12 @@ export class GhosttyInputController {
     input.removeEventListener("keydown", this.handleKeyDown);
     input.removeEventListener("keyup", this.handleKeyUp);
     input.removeEventListener("beforeinput", this.handleBeforeInput);
-    input.removeEventListener("compositionstart", this.handleCompositionStart);
+    input.removeEventListener("input", this.handleInput);
+    input.removeEventListener(
+      "compositionstart",
+      this.handleCompositionStart,
+      true,
+    );
     input.removeEventListener("compositionend", this.handleCompositionEnd);
     input.removeEventListener("paste", this.handlePaste);
     input.removeEventListener("focus", this.handleFocus);
@@ -221,16 +230,24 @@ export class GhosttyInputController {
   }
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
-    this.nativeSelection?.reset();
-    if (
-      event.defaultPrevented ||
-      this.composing ||
-      event.isComposing ||
-      event.keyCode === 229 ||
-      event.key === "Dead" ||
-      event.key === "Process"
-    )
+    if (event.defaultPrevented) return;
+    if (this.composing || event.isComposing || event.keyCode === 229) {
+      event.stopPropagation();
       return;
+    }
+    if (
+      isImeCommitEnter(
+        event,
+        this.composing,
+        this.lastCompositionEnd,
+        performance.now(),
+      )
+    ) {
+      consume(event);
+      return;
+    }
+    this.nativeSelection?.reset();
+    if (event.key === "Dead" || event.key === "Process") return;
 
     if (isPasteShortcut(event, this.isMac)) {
       consume(event);
@@ -316,6 +333,7 @@ export class GhosttyInputController {
   }
 
   private readonly handleKeyUp = (event: KeyboardEvent): void => {
+    if (event.key === "Enter") this.lastCompositionEnd = null;
     const pressed = this.pressedKeys.get(event.code);
     if (!pressed) return;
     this.pressedKeys.delete(event.code);
@@ -334,6 +352,19 @@ export class GhosttyInputController {
 
   private readonly handleBeforeInput = (event: InputEvent): void => {
     if (this.composing || event.isComposing) return;
+    if (
+      (event.inputType === "insertLineBreak" ||
+        event.inputType === "insertParagraph") &&
+      isImeCommitEnter(
+        { key: "Enter", isComposing: false, keyCode: 0 },
+        false,
+        this.lastCompositionEnd,
+        performance.now(),
+      )
+    ) {
+      consume(event);
+      return;
+    }
     let data: string | null = null;
     switch (event.inputType) {
       case "insertText":
@@ -370,12 +401,19 @@ export class GhosttyInputController {
     this.options.input.value = "";
   };
 
+  private readonly handleInput = (event: InputEvent): void => {
+    if (!this.composing && !event.isComposing) this.options.input.value = "";
+  };
+
   private readonly handleCompositionStart = (): void => {
+    this.nativeSelection?.reset();
     this.composing = true;
+    this.lastCompositionEnd = null;
   };
 
   private readonly handleCompositionEnd = (event: CompositionEvent): void => {
     this.composing = false;
+    this.lastCompositionEnd = performance.now();
     if (event.data) this.emitText(event.data, "composition", true, true, true);
     this.options.input.value = "";
   };
@@ -396,6 +434,8 @@ export class GhosttyInputController {
   private readonly handleBlur = (): void => {
     this.pressedKeys.clear();
     this.composing = false;
+    this.lastCompositionEnd = null;
+    this.options.input.value = "";
     if (this.options.model.modes().focusReporting) {
       this.emitText("\x1b[O", "keydown", false, false);
     }

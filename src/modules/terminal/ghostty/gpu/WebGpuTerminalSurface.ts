@@ -1,3 +1,4 @@
+import { TerminalCompositionView } from "@/modules/terminal/ghostty/input/TerminalCompositionView";
 import { terminalWindowFocused } from "@/modules/terminal/ghostty/renderScheduling";
 import { bindTerminalInteraction } from "@/modules/terminal/ghostty/input/terminalInteraction";
 import { TerminalScrollbarSync } from "@/modules/terminal/ghostty/gpu/terminalScrollbar";
@@ -101,6 +102,7 @@ export class WebGpuTerminalSurface
   private readonly canvas = document.createElement("canvas");
   private readonly backingStore = new CanvasBackingStore(this.canvas);
   private readonly input = document.createElement("textarea");
+  private readonly compositionView: TerminalCompositionView;
   private readonly root = document.createElement("div");
   private readonly scrollbar = document.createElement("div");
   private readonly scrollbarContent = document.createElement("div");
@@ -198,6 +200,12 @@ export class WebGpuTerminalSurface
     this.input.setAttribute("spellcheck", "false");
     this.input.style.cssText =
       "position:absolute;left:0;top:0;width:1px;height:1px;opacity:0;resize:none;pointer-events:none;";
+    this.compositionView = new TerminalCompositionView({
+      input: this.input,
+      model: options.model,
+      metrics: () => this.metrics,
+      theme: () => this.theme,
+    });
     this.scrollbar.setAttribute("aria-label", "Terminal scrollback");
     this.scrollbar.setAttribute("role", "scrollbar");
     this.scrollbar.style.cssText =
@@ -284,6 +292,8 @@ export class WebGpuTerminalSurface
 
   detach(): void {
     if (!this.host) return;
+    this.input.blur();
+    this.compositionView.hide();
     this.resizeObserver.disconnect();
     this.fitQueue.clear();
     this.pixelRatioMonitor.stop();
@@ -340,6 +350,8 @@ export class WebGpuTerminalSurface
       this.runtime.schedule(this);
       this.armCursorBlink();
     } else {
+      this.input.blur();
+      this.compositionView.hide();
       this.clearCursorTimer();
       this.clearTextBlinkTimer();
       this.textBlinkVisible = true;
@@ -443,6 +455,7 @@ export class WebGpuTerminalSurface
     }
     this.applyQueuedFit();
     if (this.options.model.deferPresentation()) return false;
+    this.compositionView.sync();
     const revision = this.options.model.revision();
     if (revision !== this.contentRevision) {
       this.contentRevision = revision;
@@ -590,6 +603,7 @@ export class WebGpuTerminalSurface
     if (this.disposed) return;
     this.detach();
     this.disposed = true;
+    this.compositionView.dispose();
     this.unsubscribeDamage();
     this.unsubscribeResizeInteraction();
     this.search.dispose();
@@ -1279,6 +1293,7 @@ export class WebGpuTerminalSurface
 
   private updateRootBackground(): void {
     this.root.style.backgroundColor = rgbToCss(this.theme.background);
+    this.compositionView?.sync();
   }
 
   private assertLive(): void {

@@ -23,6 +23,20 @@ afterEach(() => {
 });
 
 describe("WebGPU surface resource lifecycle", () => {
+  it("shows native preedit and clears it when a pane is hidden", async () => {
+    const h = await harness();
+    const input = h.surface.inputElement();
+    const originalStyle = input.style.cssText;
+    input.dispatchEvent(new Event("compositionstart"));
+    expect(input.style.cssText).toContain("opacity:1");
+    h.cursor.x = 3;
+    h.render();
+    expect(input.style.cssText).toContain(`left:${3 * METRICS.cellWidth}px`);
+    h.surface.setVisible(false);
+    expect(input.style.cssText).toBe(originalStyle);
+    expect(input.blur).toHaveBeenCalledOnce();
+  });
+
   it("does not upload or present unchanged output and only uploads uniforms for cursor movement", async () => {
     const h = await harness();
     expect(h.render()).toBe(true);
@@ -231,6 +245,7 @@ async function harness() {
           },
         },
       ),
+      blur: vi.fn(),
       scrollTop: 0,
       width: 300,
       height: 150,

@@ -27,6 +27,17 @@ afterEach(() => {
 });
 
 describe("WebGL surface renderer ownership", () => {
+  it("shows native preedit and clears it when the pane detaches", () => {
+    const h = harness();
+    const input = h.surface.inputElement();
+    const originalStyle = input.style.cssText;
+    input.dispatchEvent(new Event("compositionstart"));
+    expect(input.style.cssText).toContain("opacity:1");
+    h.surface.detach();
+    expect(input.style.cssText).toBe(originalStyle);
+    expect(input.blur).toHaveBeenCalledOnce();
+  });
+
   it.each(["theme", "font", "resume", "dpr"] as const)(
     "clears disposed renderer ownership when %s reconfiguration and recovery both fail",
     (trigger) => {
@@ -106,6 +117,7 @@ function harness() {
   const element = () =>
     Object.assign(new EventTarget(), {
       style: { setProperty: vi.fn() },
+      blur: vi.fn(),
       scrollTop: 0,
       setAttribute: vi.fn(),
       getAttribute: vi.fn(),

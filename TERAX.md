@@ -86,6 +86,12 @@ an erase in the same output chunk retain their new pins. Alternate-screen erases
 preserve primary block history. Block scrollbar status dots are removed along
 with their timers and history scans.
 
+Terminal IME preedit uses the native textarea at the Ghostty cursor in both
+WebGPU and WebGL. Uncommitted text stays in the webview; composition completion
+sends committed text once. AI chat and terminal input guard composition-confirming
+Enter, including a short compositionend-before-keydown grace period, and release
+the guard on Enter keyup so a subsequent press can submit immediately.
+
 The shared command bar activates after shell integration confirms prompt input.
 Bare shells keep direct terminal input. Bash before 4.4 reports
 `OSC 133;B;terax_blocks=0` and keeps its native prompt because it lacks PS0.

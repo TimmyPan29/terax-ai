@@ -329,6 +329,97 @@ describe("GhosttyInputController", () => {
     controller.dispose();
   });
 
+  it.each(["keydown-first", "compositionend-first"])(
+    "keeps Zhuyin preedit local and separates commit from submit (%s)",
+    (order) => {
+      const input = new FakeTextArea();
+      const onData = vi.fn();
+      const onKeyDown = vi.fn(() => false);
+      const encodeKey = vi.fn(() => new Uint8Array([13]));
+      const controller = new GhosttyInputController({
+        model: { ...inputModel(), encodeKey },
+        input: input as unknown as HTMLTextAreaElement,
+        pointerTarget: new FakeElement() as unknown as HTMLElement,
+        cellSize: () => ({ width: 10, height: 20 }),
+        onData,
+        onKeyDown,
+        onCopy: () => false,
+        isMac: true,
+      });
+      try {
+        input.dispatchEvent(new Event("compositionstart"));
+        input.value = "ㄋㄧˇ";
+        input.dispatchEvent(
+          Object.assign(new Event("input"), { isComposing: true }),
+        );
+        expect(input.value).toBe("ㄋㄧˇ");
+        expect(onData).not.toHaveBeenCalled();
+        const enter = keyboardEvent({ key: "Enter", code: "Enter" });
+        if (order === "keydown-first") input.dispatchEvent(enter);
+        input.dispatchEvent(
+          Object.assign(new Event("compositionend"), { data: "你" }),
+        );
+        if (order === "compositionend-first") input.dispatchEvent(enter);
+        const lineBreak = Object.assign(
+          new Event("beforeinput", { cancelable: true }),
+          { inputType: "insertLineBreak", isComposing: false },
+        );
+        input.dispatchEvent(lineBreak);
+        expect(lineBreak.defaultPrevented).toBe(true);
+        expect(encodeKey).not.toHaveBeenCalled();
+        expect(onKeyDown).not.toHaveBeenCalled();
+        expect(
+          onData.mock.calls.map(([bytes]) => new TextDecoder().decode(bytes)),
+        ).toEqual(["你"]);
+        input.value = "你";
+        input.dispatchEvent(
+          Object.assign(new Event("input"), { isComposing: false }),
+        );
+        expect(input.value).toBe("");
+        input.dispatchEvent(
+          keyboardEvent({ key: "Enter", code: "Enter" }, "keyup"),
+        );
+        input.dispatchEvent(keyboardEvent({ key: "Enter", code: "Enter" }));
+        expect(
+          onData.mock.calls.map(([bytes]) => new TextDecoder().decode(bytes)),
+        ).toEqual(["你", "\r"]);
+      } finally {
+        controller.dispose();
+      }
+    },
+  );
+
+  it("cancels preedit without sending it and resets state on blur", () => {
+    const input = new FakeTextArea();
+    const onData = vi.fn();
+    const controller = new GhosttyInputController({
+      model: { ...inputModel(), encodeKey: () => new Uint8Array([120]) },
+      input: input as unknown as HTMLTextAreaElement,
+      pointerTarget: new FakeElement() as unknown as HTMLElement,
+      cellSize: () => ({ width: 10, height: 20 }),
+      onData,
+      onCopy: () => false,
+      isMac: true,
+    });
+    try {
+      input.dispatchEvent(new Event("compositionstart"));
+      input.value = "ㄋ";
+      input.dispatchEvent(
+        Object.assign(new Event("compositionend"), { data: "" }),
+      );
+      expect(input.value).toBe("");
+      expect(onData).not.toHaveBeenCalled();
+      input.dispatchEvent(new Event("compositionstart"));
+      input.value = "ㄋ";
+      input.dispatchEvent(new Event("blur"));
+      expect(input.value).toBe("");
+      input.dispatchEvent(keyboardEvent({ key: "x", code: "KeyX" }));
+      expect(new TextDecoder().decode(onData.mock.calls[0][0])).toBe("x");
+    } finally {
+      controller.dispose();
+    }
+  });
+
   it("encodes AltGr characters and keeps a duplicate beforeinput from typing twice", () => {
     const input = new FakeTextArea();
     const onData = vi.fn();
