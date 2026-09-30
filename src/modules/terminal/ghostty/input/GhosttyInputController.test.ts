@@ -195,9 +195,14 @@ describe("GhosttyInputController", () => {
     },
   );
 
-  it.each(["ghostty-vt.wasm", "ghostty-vt-scalar.wasm"])(
-    "types shifted symbols once in legacy and CLI keyboard modes (%s)",
-    async (artifact) => {
+  it.each([
+    ["ghostty-vt.wasm", false],
+    ["ghostty-vt-scalar.wasm", false],
+    ["ghostty-vt.wasm", true],
+    ["ghostty-vt-scalar.wasm", true],
+  ] as const)(
+    "types shifted symbols once in CLI modes (%s, agy negotiation: %s)",
+    async (artifact, agyNegotiation) => {
       const bytes = await readFile(
         new URL(
           `../../../../../packages/ghostty-core/adapted/${artifact}`,
@@ -224,6 +229,15 @@ describe("GhosttyInputController", () => {
         for (const screen of ["\x1b[?1049l", "\x1b[?1049h"]) {
           terminal.write(new TextEncoder().encode(screen));
           for (const mode of [0, 1, 3, 5, 7]) {
+            if (agyNegotiation) {
+              terminal.write(
+                new TextEncoder().encode(
+                  mode === 0
+                    ? "\x1b[>4m"
+                    : "\x1b[>4m\x1b[<1u\x1b[>4;2m\x1b[>1u",
+                ),
+              );
+            }
             terminal.write(new TextEncoder().encode(`\x1b[=${mode}u`));
             for (const [code, key] of [
               ["Digit2", "@"],
