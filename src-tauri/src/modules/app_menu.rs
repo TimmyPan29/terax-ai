@@ -16,8 +16,37 @@ fn is_guarded_quit(id: &MenuId) -> bool {
     id == GUARDED_QUIT_MENU_ID
 }
 
+fn disable_window_close<R: Runtime>(app: &AppHandle<R>, menu: &Menu<R>) -> tauri::Result<()> {
+    let mut replaced = false;
+    for item in menu.items()? {
+        let Some(submenu) = item.as_submenu() else {
+            continue;
+        };
+        for (index, item) in submenu.items()?.into_iter().enumerate() {
+            let Some(predefined) = item.as_predefined_menuitem() else {
+                continue;
+            };
+            let text = predefined.text()?;
+            if text != "Close Window" {
+                continue;
+            }
+            let disabled = MenuItem::new(app, text, false, None::<&str>)?;
+            submenu.remove_at(index)?;
+            submenu.insert(&disabled, index)?;
+            replaced = true;
+        }
+    }
+    if !replaced {
+        return Err(invalid_default_menu(
+            "macOS default Close Window item is missing",
+        ));
+    }
+    Ok(())
+}
+
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let menu = Menu::default(app)?;
+    disable_window_close(app, &menu)?;
     let app_menu = menu
         .items()?
         .into_iter()
