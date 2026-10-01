@@ -18,6 +18,19 @@ cargo nextest run --locked        # CI uses nextest
 
 If you do not have `cargo-nextest` installed, `cargo test --locked` is the local fallback. Install nextest with `cargo install cargo-nextest`.
 
+## Production asset budgets
+
+Run `pnpm build` followed by `pnpm size` to reproduce CI's size gate. CI runs on
+pushes to `main` and `release`, pull requests targeting `main`, and manual requests.
+Installer packaging remains in the version-tag Release workflow.
+
+The gzip JavaScript budgets are 2,400 KB overall, 1,550 KB excluding Mermaid,
+and 850 KB for the on-demand Mermaid chunk. Mermaid preview added about 814 KB
+to the client; the earlier 1,505 KB total predated that feature. The separate
+limits account for every JavaScript asset while keeping diagram growth from
+using the rest of the client's allowance. Startup, terminal, WebGL, and WASM
+budgets remain unchanged. Keep Mermaid out of the eager startup graph.
+
 ## What must have a test
 
 `CONTRIBUTING.md` requires a test for any change that touches behavior in these load-bearing paths:

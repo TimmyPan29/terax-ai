@@ -15,7 +15,24 @@
     "path": [
       "dist/assets/*.js"
     ],
-    "limit": "1505 KB",
+    "limit": "2400 KB",
+    "gzip": true
+  },
+  {
+    "name": "client JS excluding Mermaid diagrams",
+    "path": [
+      "dist/assets/*.js",
+      "!dist/assets/markdown-mermaid-*.js"
+    ],
+    "limit": "1550 KB",
+    "gzip": true
+  },
+  {
+    "name": "Mermaid diagram JS (loaded on demand)",
+    "path": [
+      "dist/assets/markdown-mermaid-*.js"
+    ],
+    "limit": "850 KB",
     "gzip": true
   },
   {
