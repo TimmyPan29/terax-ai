@@ -74,6 +74,9 @@ and forward them to the focused
 main window's shortcut dispatcher, including when a PDF or preview iframe has
 focus. Duplicate native Close Window items have no accelerator. Tab and terminal
 pane closure retains the app's close guards; auxiliary windows close themselves.
+Windows main-window Ctrl-W and Ctrl-T are handled by WebView2 accelerator events,
+including native PDF focus. Repeat keydowns are consumed once; actions are queued
+after the synchronous callback and delivered to the existing shortcut dispatcher.
 The block prompt retains an enabled terminal input proxy for native menus and
 routes editing keys, composed text and paste back to its command editor.
 Character drags retain a native selection pin from pointerdown, including before

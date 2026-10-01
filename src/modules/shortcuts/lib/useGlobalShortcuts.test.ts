@@ -13,7 +13,11 @@ vi.mock("react", () => ({
   useRef: (current: unknown) => ({ current }),
   useEffect: (effect: () => () => void) => state.effects.push(effect),
 }));
-vi.mock("@/lib/platform", () => ({ IS_MAC: true, MOD_PROP: "meta" }));
+vi.mock("@/lib/platform", () => ({
+  IS_MAC: true,
+  IS_WINDOWS: false,
+  MOD_PROP: "meta",
+}));
 vi.mock("@/modules/settings/preferences", () => ({
   usePreferencesStore: (select: (s: unknown) => unknown) =>
     select({ shortcuts: state.shortcuts }),

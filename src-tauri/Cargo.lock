@@ -5363,7 +5363,7 @@ dependencies = [
 
 [[package]]
 name = "terax"
-version = "0.9.30"
+version = "0.9.31"
 dependencies = [
  "block2",
  "bytes",
@@ -5405,14 +5405,16 @@ dependencies = [
  "terax-control-protocol",
  "tokio",
  "wasmparser 0.258.0",
+ "webview2-com",
  "which",
  "window-vibrancy 0.8.0",
+ "windows",
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "terax-cli"
-version = "0.9.30"
+version = "0.9.31"
 dependencies = [
  "dirs 7.0.0",
  "libc",
@@ -5424,7 +5426,7 @@ dependencies = [
 
 [[package]]
 name = "terax-control-protocol"
-version = "0.9.30"
+version = "0.9.31"
 dependencies = [
  "serde",
  "serde_json",

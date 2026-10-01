@@ -7,6 +7,8 @@ use modules::{
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
+#[cfg(target_os = "windows")]
+use tauri::WindowEvent;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 #[cfg(target_os = "macos")]
 use tauri::{PhysicalPosition, WindowEvent};
@@ -214,6 +216,32 @@ pub fn run() {
         .setup(move |_app| {
             #[cfg(target_os = "macos")]
             modules::window_presentation::macos::install(_app.handle());
+            #[cfg(target_os = "windows")]
+            if let Some(main) = _app.get_webview_window("main") {
+                let handle = _app.handle().clone();
+                main.with_webview(move |webview| {
+                    let dispatch_handle = handle.clone();
+                    if let Err(error) = modules::native_shortcuts::windows::install(
+                        webview.controller(),
+                        move |event| {
+                            let handle = dispatch_handle.clone();
+                            // Queue from a worker because Tauri runs main-thread tasks inline here.
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(error) = handle.emit_to("main", event, ()) {
+                                    log::error!("could not dispatch Windows shortcut: {error}");
+                                }
+                            });
+                        },
+                    ) {
+                        log::error!("could not install Windows native shortcuts: {error}");
+                    }
+                })?;
+                main.on_window_event(|event| {
+                    if matches!(event, WindowEvent::Destroyed) {
+                        modules::native_shortcuts::windows::uninstall();
+                    }
+                });
+            }
             if let Err(error) = control::start(_app.handle().clone(), control_for_setup.clone()) {
                 log::warn!("could not start Terax control server: {error}");
             }
@@ -351,6 +379,8 @@ pub fn run() {
                 tauri::RunEvent::Exit => {
                     #[cfg(target_os = "macos")]
                     modules::window_presentation::macos::uninstall();
+                    #[cfg(target_os = "windows")]
+                    modules::native_shortcuts::windows::uninstall();
                     if let Some(state) = app.try_state::<lsp::LspState>() {
                         state.kill_all();
                     }
