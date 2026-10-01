@@ -1,6 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef } from "react";
-import { IS_MAC } from "@/lib/platform";
+import { IS_MAC, IS_WINDOWS } from "@/lib/platform";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   SHORTCUTS,
@@ -44,9 +44,8 @@ export function useGlobalShortcuts(
     };
     const onDomKey = (e: KeyboardEvent) => {
       if (
-        IS_MAC &&
-        e.metaKey &&
-        !e.ctrlKey &&
+        ((IS_MAC && e.metaKey && !e.ctrlKey) ||
+          (IS_WINDOWS && e.ctrlKey && !e.metaKey)) &&
         !e.altKey &&
         !e.shiftKey &&
         ["w", "t"].includes(e.key.toLowerCase())
@@ -56,7 +55,7 @@ export function useGlobalShortcuts(
     };
     let disposed = false;
     const unlisteners: Array<() => void> = [];
-    if (IS_MAC) {
+    if (IS_MAC || IS_WINDOWS) {
       for (const [event, key, code] of [
         ["terax:close-pane", "w", "KeyW"],
         ["terax:new-terminal", "t", "KeyT"],
@@ -64,7 +63,14 @@ export function useGlobalShortcuts(
         void getCurrentWindow()
           .listen(event, () => {
             if (!disposed) {
-              onKey(new KeyboardEvent("keydown", { key, code, metaKey: true }));
+              onKey(
+                new KeyboardEvent("keydown", {
+                  key,
+                  code,
+                  metaKey: IS_MAC,
+                  ctrlKey: IS_WINDOWS,
+                }),
+              );
             }
           })
           .then((off) => {
