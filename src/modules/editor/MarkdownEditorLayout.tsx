@@ -10,6 +10,8 @@ import {
   Suspense,
   useDeferredValue,
   useLayoutEffect,
+  useEffect,
+  useRef,
 } from "react";
 import { usePanelRef } from "react-resizable-panels";
 
@@ -48,6 +50,9 @@ export function MarkdownEditorLayout({
   mode: MarkdownViewMode;
   visible: boolean;
 }) {
+  const sourceContainerRef = useRef<HTMLDivElement>(null);
+  const previewContainerRef = useRef<HTMLElement>(null);
+  const previewContentRef = useRef<HTMLDivElement>(null);
   const sourceRef = usePanelRef();
   const previewRef = usePanelRef();
 
@@ -63,6 +68,56 @@ export function MarkdownEditorLayout({
     }
   }, [mode, sourceRef, previewRef]);
 
+  useEffect(() => {
+    if (!visible || mode !== "split") return;
+    const sourceContainer = sourceContainerRef.current;
+    const preview = previewContainerRef.current;
+    const previewContent = previewContentRef.current;
+    if (!sourceContainer || !preview || !previewContent) return;
+
+    let frame: number | undefined;
+    const sync = () => {
+      frame = undefined;
+      const source = sourceContainer.querySelector<HTMLElement>(".cm-scroller");
+      if (!source) return;
+      const sourceRange = source.scrollHeight - source.clientHeight;
+      const progress =
+        sourceRange > 0
+          ? Math.min(1, Math.max(0, source.scrollTop / sourceRange))
+          : 0;
+      preview.scrollTop =
+        progress * Math.max(0, preview.scrollHeight - preview.clientHeight);
+    };
+    const schedule = () => {
+      if (frame === undefined) frame = requestAnimationFrame(sync);
+    };
+    const onScroll = (event: Event) => {
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.classList.contains("cm-scroller")
+      ) {
+        schedule();
+      }
+    };
+    sourceContainer.addEventListener("scroll", onScroll, true);
+    const resizeObserver = new ResizeObserver(schedule);
+    resizeObserver.observe(sourceContainer);
+    resizeObserver.observe(preview);
+    resizeObserver.observe(previewContent);
+    const mutationObserver = new MutationObserver(schedule);
+    mutationObserver.observe(sourceContainer, {
+      childList: true,
+      subtree: true,
+    });
+    schedule();
+    return () => {
+      sourceContainer.removeEventListener("scroll", onScroll, true);
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
+  }, [mode, visible]);
+
   return (
     <ResizablePanelGroup orientation="horizontal">
       <ResizablePanel
@@ -76,7 +131,11 @@ export function MarkdownEditorLayout({
         disabled={mode !== "split"}
         aria-hidden={mode === "rendered"}
       >
-        <div className="h-full min-w-0" inert={mode === "rendered"}>
+        <div
+          ref={sourceContainerRef}
+          className="h-full min-w-0"
+          inert={mode === "rendered"}
+        >
           {children}
         </div>
       </ResizablePanel>
@@ -97,10 +156,13 @@ export function MarkdownEditorLayout({
         aria-hidden={mode === "raw"}
       >
         <section
+          ref={previewContainerRef}
           className="h-full min-w-0 overflow-auto bg-background px-8 py-6"
           aria-label="Markdown preview"
         >
-          {visible && mode !== "raw" && <LivePreview content={content} />}
+          <div ref={previewContentRef}>
+            {visible && mode !== "raw" && <LivePreview content={content} />}
+          </div>
         </section>
       </ResizablePanel>
     </ResizablePanelGroup>
