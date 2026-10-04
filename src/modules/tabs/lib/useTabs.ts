@@ -1,4 +1,5 @@
 import { isMarkdownPath } from "@/lib/utils";
+import type { MarkdownViewMode } from "@/modules/markdown/MarkdownViewToggle";
 import {
   type AgentInstanceCount,
   createAgentPanePlan,
@@ -63,6 +64,7 @@ export type EditorTab = TabBase & {
    */
   preview: boolean;
   overrideLanguage?: string | null;
+  markdownView?: MarkdownViewMode;
 };
 
 export type PreviewTab = TabBase & {
@@ -145,6 +147,25 @@ export type TabPatch = Partial<{
   customTitle: string;
   overrideLanguage: string | null;
 }>;
+
+export function setTabMarkdownView(tab: Tab, mode: MarkdownViewMode): Tab {
+  if (
+    (tab.kind !== "editor" && tab.kind !== "markdown") ||
+    !isMarkdownPath(tab.path)
+  )
+    return tab;
+  if (tab.kind === "editor") {
+    return tab.markdownView === mode ? tab : { ...tab, markdownView: mode };
+  }
+  if (mode === "rendered") return tab;
+  return {
+    ...tab,
+    kind: "editor",
+    dirty: false,
+    preview: false,
+    markdownView: mode,
+  };
+}
 
 export type GitDiffOpenInput = {
   path: string;
@@ -997,44 +1018,11 @@ export function useTabs(initial?: Partial<TerminalTab>) {
     );
   }, []);
 
-  const setMarkdownView = useCallback(
-    (id: number, mode: "rendered" | "raw") => {
-      setTabs((curr) =>
-        curr.map((t) => {
-          if (
-            t.id !== id ||
-            !isMarkdownPath((t as { path?: string }).path ?? "")
-          )
-            return t;
-          if (mode === "raw" && t.kind === "markdown") {
-            return {
-              ...t,
-              kind: "editor" as const,
-              dirty: false,
-              preview: false,
-              overrideLanguage:
-                (t as { overrideLanguage?: string | null }).overrideLanguage ??
-                null,
-            };
-          }
-          if (mode === "rendered" && t.kind === "editor") {
-            if (t.dirty) return t;
-            return {
-              id: t.id,
-              kind: "markdown" as const,
-              spaceId: t.spaceId,
-              cold: t.cold,
-              title: t.title,
-              path: t.path,
-              overrideLanguage: t.overrideLanguage ?? null,
-            };
-          }
-          return t;
-        }),
-      );
-    },
-    [],
-  );
+  const setMarkdownView = useCallback((id: number, mode: MarkdownViewMode) => {
+    setTabs((curr) =>
+      curr.map((t) => (t.id === id ? setTabMarkdownView(t, mode) : t)),
+    );
+  }, []);
 
   const openGitDiffTab = useCallback((input: GitDiffOpenInput, pin = false) => {
     const curr = tabsRef.current;

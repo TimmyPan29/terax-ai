@@ -1,33 +1,31 @@
 import { cn } from "@/lib/utils";
 
-type Mode = "rendered" | "raw";
+export type MarkdownViewMode = "rendered" | "raw" | "split";
 
 type Props = {
-  mode: Mode;
-  onChange: (mode: Mode) => void;
-  renderedDisabled?: boolean;
-  renderedHint?: string;
+  mode: MarkdownViewMode;
+  onChange: (mode: MarkdownViewMode) => void;
+  className?: string;
 };
 
-export function MarkdownViewToggle({
-  mode,
-  onChange,
-  renderedDisabled,
-  renderedHint,
-}: Props) {
+export function MarkdownViewToggle({ mode, onChange, className }: Props) {
   return (
-    <div className="absolute right-3 top-3 z-10 inline-flex items-center gap-0.5 rounded-md border border-border/60 bg-card/85 p-0.5 text-[11px] shadow-sm backdrop-blur">
+    <fieldset
+      className={cn(
+        "absolute right-3 top-3 z-10 inline-flex items-center gap-0.5 rounded-md border border-border/60 bg-card/85 p-0.5 text-[11px] shadow-sm backdrop-blur",
+        className,
+      )}
+      aria-label="Markdown view"
+    >
       <button
         type="button"
         onClick={() => onChange("rendered")}
-        disabled={renderedDisabled}
-        title={renderedDisabled ? renderedHint : undefined}
+        aria-pressed={mode === "rendered"}
         className={cn(
           "rounded px-2 py-0.5 transition-colors",
           mode === "rendered"
             ? "bg-accent text-foreground"
             : "text-muted-foreground hover:text-foreground",
-          renderedDisabled && "cursor-not-allowed opacity-40 hover:text-muted-foreground",
         )}
       >
         Rendered
@@ -35,6 +33,7 @@ export function MarkdownViewToggle({
       <button
         type="button"
         onClick={() => onChange("raw")}
+        aria-pressed={mode === "raw"}
         className={cn(
           "rounded px-2 py-0.5 transition-colors",
           mode === "raw"
@@ -44,6 +43,19 @@ export function MarkdownViewToggle({
       >
         Raw
       </button>
-    </div>
+      <button
+        type="button"
+        onClick={() => onChange("split")}
+        aria-pressed={mode === "split"}
+        className={cn(
+          "rounded px-2 py-0.5 transition-colors",
+          mode === "split"
+            ? "bg-accent text-foreground"
+            : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        Split
+      </button>
+    </fieldset>
   );
 }

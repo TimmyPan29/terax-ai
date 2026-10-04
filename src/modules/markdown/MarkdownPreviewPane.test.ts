@@ -4,11 +4,11 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(path.join(here, "MarkdownPreviewPane.tsx"), "utf8");
+const src = readFileSync(path.join(here, "MarkdownContent.tsx"), "utf8");
 const streamdownMatch = src.match(/<Streamdown[\s\S]*?<\/Streamdown>/);
 const streamdownJsx = streamdownMatch?.[0] ?? "";
 
-describe("MarkdownPreviewPane Streamdown configuration", () => {
+describe("MarkdownContent Streamdown configuration", () => {
   it("renders complete markdown files in static mode", () => {
     expect(streamdownJsx).toMatch(/mode="static"/);
   });

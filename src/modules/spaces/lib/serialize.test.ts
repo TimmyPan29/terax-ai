@@ -25,6 +25,30 @@ function term(over: Partial<Extract<Tab, { kind: "terminal" }>>): Tab {
 }
 
 describe("serializeTabs", () => {
+  it("restores each Markdown editor view without persisting unsaved content", () => {
+    for (const markdownView of ["raw", "rendered", "split"] as const) {
+      const tab: Tab = {
+        id: 1,
+        kind: "editor",
+        spaceId: "s1",
+        title: "article.md",
+        path: "/repo/article.md",
+        dirty: true,
+        preview: false,
+        markdownView,
+      };
+      const serialized = serializeTabs([tab]);
+      expect(serialized).toEqual([
+        { kind: "editor", path: tab.path, markdownView },
+      ]);
+      expect(hydrateTabs(serialized, "s1", counter())[0]).toMatchObject({
+        kind: "editor",
+        path: tab.path,
+        dirty: false,
+        markdownView,
+      });
+    }
+  });
   it("drops private terminals and transient kinds", () => {
     const tabs: Tab[] = [
       term({ id: 1 }),

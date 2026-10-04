@@ -1,6 +1,7 @@
 import { endpointIdFromCompatModel } from "@/modules/ai/config";
 import { getCustomEndpointKey, getKey } from "@/modules/ai/lib/keyring";
 import { lspFormatDocument, useLspExtension } from "@/modules/lsp";
+import type { MarkdownViewMode } from "@/modules/markdown/MarkdownViewToggle";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { onKeysChanged } from "@/modules/settings/store";
 import { acceptCompletion, startCompletion } from "@codemirror/autocomplete";
@@ -33,6 +34,7 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { MarkdownEditorLayout } from "./MarkdownEditorLayout";
 import {
   inlineCompletion,
   triggerInlineCompletion,
@@ -93,11 +95,24 @@ type Props = {
   onDirtyChange?: (dirty: boolean) => void;
   onSaved?: () => void;
   onClose?: () => void;
+  markdownView?: MarkdownViewMode;
+  visible?: boolean;
 };
 
 // Above this, syntax highlighting and LSP are disabled: a multi-MB lezer
 // parse tree and a didOpen of that size cost far more than they give.
 const SYNTAX_MAX_BYTES = 4 * 1024 * 1024;
+const BASIC_SETUP = {
+  lineNumbers: true,
+  highlightActiveLineGutter: true,
+  foldGutter: true,
+  bracketMatching: true,
+  closeBrackets: true,
+  autocompletion: true,
+  highlightActiveLine: true,
+  highlightSelectionMatches: true,
+  searchKeymap: true,
+};
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -109,13 +124,36 @@ function formatBytes(n: number): string {
 // skip re-rendering entirely when App re-renders (terminal events, tab churn).
 export const EditorPane = memo(
   forwardRef<EditorPaneHandle, Props>(function EditorPane(props, ref) {
-    const { path, overrideLanguage, onDirtyChange, onSaved, onClose } = props;
+    const {
+      path,
+      overrideLanguage,
+      onDirtyChange,
+      onSaved,
+      onClose,
+      markdownView,
+      visible = true,
+    } = props;
 
     const { doc, onChange, save, reload, adoptDiskText, openAnyway } =
       useDocument({
         path,
         onDirtyChange,
       });
+    const [previewBuffer, setPreviewBuffer] = useState<{
+      document: typeof doc;
+      content: string;
+    } | null>(null);
+    const previewDocumentRef = useRef(doc);
+    previewDocumentRef.current = doc;
+    const isMarkdown = markdownView !== undefined;
+    const handleChange = useCallback(
+      (content: string) => {
+        onChange(content);
+        if (isMarkdown)
+          setPreviewBuffer({ document: previewDocumentRef.current, content });
+      },
+      [onChange, isMarkdown],
+    );
     const reloadRef = useRef(reload);
     reloadRef.current = reload;
     const adoptDiskTextRef = useRef(adoptDiskText);
@@ -671,7 +709,8 @@ export const EditorPane = memo(
         );
       }
 
-      const canForce = doc.status === "toolarge" && doc.size <= FORCE_READ_LIMIT;
+      const canForce =
+        doc.status === "toolarge" && doc.size <= FORCE_READ_LIMIT;
       return (
         <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
           <div className="text-sm text-foreground">
@@ -694,29 +733,32 @@ export const EditorPane = memo(
       );
     }
 
-    return (
+    const editor = (
       <div className="flex h-full min-h-0 flex-col zoom-exempt">
         <CodeMirror
           ref={cmRef}
           value={doc.content}
-          onChange={onChange}
+          onChange={handleChange}
           theme={themeExt}
           extensions={extensions}
           height="100%"
           className="terax-code-editor flex-1 min-h-0 overflow-hidden"
-          basicSetup={{
-            lineNumbers: true,
-            highlightActiveLineGutter: true,
-            foldGutter: true,
-            bracketMatching: true,
-            closeBrackets: true,
-            autocompletion: true,
-            highlightActiveLine: true,
-            highlightSelectionMatches: true,
-            searchKeymap: true,
-          }}
+          basicSetup={BASIC_SETUP}
         />
       </div>
+    );
+    return markdownView === undefined ? (
+      editor
+    ) : (
+      <MarkdownEditorLayout
+        content={
+          previewBuffer?.document === doc ? previewBuffer.content : doc.content
+        }
+        mode={markdownView}
+        visible={visible}
+      >
+        {editor}
+      </MarkdownEditorLayout>
     );
   }),
 );

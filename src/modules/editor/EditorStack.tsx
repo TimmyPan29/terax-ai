@@ -1,5 +1,5 @@
 import { cn, isMarkdownPath } from "@/lib/utils";
-import { MarkdownViewToggle } from "@/modules/markdown";
+import { MarkdownViewToggle, type MarkdownViewMode } from "@/modules/markdown";
 import type { EditorTab, Tab } from "@/modules/tabs";
 import { useEffect, useRef } from "react";
 import { EditorPane, type EditorPaneHandle } from "./EditorPane";
@@ -10,7 +10,7 @@ type Props = {
   onDirtyChange: (id: number, dirty: boolean) => void;
   registerHandle: (id: number, handle: EditorPaneHandle | null) => void;
   onCloseTab: (id: number) => void;
-  onSetMarkdownView: (id: number, mode: "rendered" | "raw") => void;
+  onSetMarkdownView: (id: number, mode: MarkdownViewMode) => void;
 };
 
 export function EditorStack({
@@ -102,22 +102,31 @@ export function EditorStack({
             )}
             aria-hidden={!visible}
           >
-            <div className="relative h-full overflow-hidden bg-background">
+            <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background">
               {isMarkdownPath(t.path) && (
-                <MarkdownViewToggle
-                  mode="raw"
-                  onChange={(mode) => onSetMarkdownView(t.id, mode)}
-                  renderedDisabled={t.dirty}
-                  renderedHint="Save to preview"
-                />
+                <div className="flex h-9 shrink-0 items-center justify-end border-b border-border/60 px-3">
+                  <MarkdownViewToggle
+                    className="static"
+                    mode={t.markdownView ?? "split"}
+                    onChange={(mode) => onSetMarkdownView(t.id, mode)}
+                  />
+                </div>
               )}
-              <EditorPane
-                ref={getRefCallback(t.id)}
-                path={t.path}
-                overrideLanguage={t.overrideLanguage}
-                onDirtyChange={getDirtyCallback(t.id)}
-                onClose={getCloseCallback(t.id)}
-              />
+              <div className="min-h-0 flex-1">
+                <EditorPane
+                  ref={getRefCallback(t.id)}
+                  path={t.path}
+                  overrideLanguage={t.overrideLanguage}
+                  onDirtyChange={getDirtyCallback(t.id)}
+                  onClose={getCloseCallback(t.id)}
+                  markdownView={
+                    isMarkdownPath(t.path)
+                      ? (t.markdownView ?? "split")
+                      : undefined
+                  }
+                  visible={visible}
+                />
+              </div>
             </div>
           </div>
         );

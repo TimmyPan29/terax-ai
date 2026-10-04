@@ -1,11 +1,12 @@
 import { cn } from "@/lib/utils";
 import type { MarkdownTab, Tab } from "@/modules/tabs";
 import { MarkdownPreviewPane } from "./MarkdownPreviewPane";
+import type { MarkdownViewMode } from "./MarkdownViewToggle";
 
 type Props = {
   tabs: Tab[];
   activeId: number;
-  onSetMarkdownView: (id: number, mode: "rendered" | "raw") => void;
+  onSetMarkdownView: (id: number, mode: MarkdownViewMode) => void;
 };
 
 export function MarkdownStack({ tabs, activeId, onSetMarkdownView }: Props) {

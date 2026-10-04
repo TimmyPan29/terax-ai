@@ -1,10 +1,12 @@
 import { cn } from "@/lib/utils";
 import { currentWorkspaceEnv } from "@/modules/workspace";
 import { invoke } from "@tauri-apps/api/core";
-import { lazy, Suspense, useEffect, useState } from "react";
-import { Streamdown } from "streamdown";
-import { markdownComponents } from "./markdownComponents";
-import { MarkdownViewToggle } from "./MarkdownViewToggle";
+import { useEffect, useState } from "react";
+import MarkdownContent from "./MarkdownContent";
+import {
+  MarkdownViewToggle,
+  type MarkdownViewMode,
+} from "./MarkdownViewToggle";
 
 type ReadResult =
   | { kind: "text"; content: string; size: number }
@@ -21,12 +23,8 @@ type Status =
 type Props = {
   path: string;
   visible: boolean;
-  onSetView: (mode: "rendered" | "raw") => void;
+  onSetView: (mode: MarkdownViewMode) => void;
 };
-
-const MarkdownMath = lazy(() => import("./MarkdownMath"));
-const MarkdownMermaid = lazy(() => import("./MarkdownMermaid"));
-const MarkdownFull = lazy(() => import("./MarkdownFull"));
 
 export function MarkdownPreviewPane({ path, visible, onSetView }: Props) {
   const [status, setStatus] = useState<Status>({ kind: "loading" });
@@ -84,66 +82,9 @@ export function MarkdownPreviewPane({ path, visible, onSetView }: Props) {
               File is {status.size} bytes; limit {status.limit}.
             </p>
           )}
-          {status.kind === "ready" &&
-            (() => {
-              const hasMath = /\\[([]|\$\$|\$[^$\s]/.test(status.content);
-              const hasMermaid = /(?:```|~~~)mermaid(?:[\s{]|$)/.test(
-                status.content,
-              );
-
-              if (hasMath && hasMermaid) {
-                return (
-                  <Suspense
-                    fallback={
-                      <p className="text-[12px] text-muted-foreground">
-                        Loading preview…
-                      </p>
-                    }
-                  >
-                    <MarkdownFull content={status.content} />
-                  </Suspense>
-                );
-              }
-
-              if (hasMath) {
-                return (
-                  <Suspense
-                    fallback={
-                      <p className="text-[12px] text-muted-foreground">
-                        Loading math…
-                      </p>
-                    }
-                  >
-                    <MarkdownMath content={status.content} />
-                  </Suspense>
-                );
-              }
-
-              if (hasMermaid) {
-                return (
-                  <Suspense
-                    fallback={
-                      <p className="text-[12px] text-muted-foreground">
-                        Loading diagram…
-                      </p>
-                    }
-                  >
-                    <MarkdownMermaid content={status.content} />
-                  </Suspense>
-                );
-              }
-
-              return (
-                <Streamdown
-                  className="select-text [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
-                  components={markdownComponents}
-                  mode="static"
-                  parseIncompleteMarkdown={false}
-                >
-                  {status.content}
-                </Streamdown>
-              );
-            })()}
+          {status.kind === "ready" && visible && (
+            <MarkdownContent content={status.content} />
+          )}
         </div>
       </div>
     </div>

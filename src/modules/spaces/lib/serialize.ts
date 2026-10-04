@@ -10,6 +10,7 @@ import type {
   Tab,
   TerminalTab,
 } from "@/modules/tabs/lib/useTabs";
+import type { MarkdownViewMode } from "@/modules/markdown/MarkdownViewToggle";
 
 export type SerializedNode =
   | { kind: "leaf"; cwd?: string; active?: boolean }
@@ -22,7 +23,7 @@ export type SerializedTab =
       blocks?: boolean;
       customTitle?: string;
     }
-  | { kind: "editor"; path: string }
+  | { kind: "editor"; path: string; markdownView?: MarkdownViewMode }
   | { kind: "preview"; url: string }
   | { kind: "markdown"; path: string };
 
@@ -78,7 +79,11 @@ function serializeTab(tab: Tab): SerializedTab | null {
         ...(tab.customTitle !== undefined && { customTitle: tab.customTitle }),
       };
     case "editor":
-      return { kind: "editor", path: tab.path };
+      return {
+        kind: "editor",
+        path: tab.path,
+        ...(tab.markdownView && { markdownView: tab.markdownView }),
+      };
     case "preview":
       return { kind: "preview", url: tab.url };
     case "markdown":
@@ -175,6 +180,9 @@ function hydrateTab(
         path: s.path,
         dirty: false,
         preview: false,
+        ...((s.markdownView === "raw" ||
+          s.markdownView === "rendered" ||
+          s.markdownView === "split") && { markdownView: s.markdownView }),
       } satisfies EditorTab;
     case "preview":
       return {
