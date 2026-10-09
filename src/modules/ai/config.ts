@@ -2,6 +2,7 @@ export const KEYRING_SERVICE = "terax-ai";
 
 export type ProviderId =
   | "openai"
+  | "openai-account"
   | "anthropic"
   | "google"
   | "xai"
@@ -32,6 +33,13 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     keyringAccount: "openai-api-key",
     keyPrefix: "sk-",
     consoleUrl: "https://platform.openai.com/api-keys",
+  },
+  {
+    id: "openai-account",
+    label: "OpenAI Account",
+    keyringAccount: "",
+    keyPrefix: null,
+    consoleUrl: "https://developers.openai.com/codex/app-server",
   },
   {
     id: "anthropic",
@@ -109,7 +117,8 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     label: "MLX",
     keyringAccount: "",
     keyPrefix: null,
-    consoleUrl: "https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/SERVER.md",
+    consoleUrl:
+      "https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/SERVER.md",
   },
   {
     id: "ollama",
@@ -190,11 +199,62 @@ export type ModelInfo = {
 export const MODELS = [
   // ── OpenAI ────────────────────────────────────────────────────────────────
   {
+    id: "gpt-6.1",
+    provider: "openai",
+    label: "GPT-6.1 Sol",
+    hint: "Flagship",
+    description: "Frontier model for complex professional and agentic work.",
+    capabilities: { intelligence: 5, speed: 4, cost: 1 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+    supportsTemperature: false,
+  },
+  {
+    id: "gpt-6.1-terra",
+    provider: "openai",
+    label: "GPT-6.1 Terra",
+    hint: "Balanced",
+    description: "Strong intelligence with lower cost and latency.",
+    capabilities: { intelligence: 5, speed: 4, cost: 2 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+    supportsTemperature: false,
+  },
+  {
+    id: "gpt-6.1-luna",
+    provider: "openai",
+    label: "GPT-6.1 Luna",
+    hint: "Fast",
+    description: "Fast, affordable reasoning for high-volume work.",
+    capabilities: { intelligence: 4, speed: 5, cost: 3 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+    supportsTemperature: false,
+  },
+  {
+    id: "gpt-6.1-codex",
+    provider: "openai",
+    label: "GPT-6.1 Codex",
+    hint: "Coding",
+    description:
+      "Frontier agentic coding model tuned for complex repos and terminal tools.",
+    capabilities: { intelligence: 5, speed: 4, cost: 2 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+    supportsTemperature: false,
+  },
+  {
+    id: "gpt-6.0-codex",
+    provider: "openai",
+    label: "GPT-6.0 Codex",
+    hint: "Coding",
+    description: "Tuned for code generation and automated tool workflows.",
+    capabilities: { intelligence: 5, speed: 4, cost: 3 },
+    tags: ["tools", "coding"],
+    supportsTemperature: false,
+  },
+  {
     id: "gpt-5.6",
     provider: "openai",
     label: "GPT-5.6 Sol",
-    hint: "Flagship",
-    description: "Frontier model for complex professional and agentic work.",
+    hint: "Previous",
+    description: "Previous-gen flagship model for complex work.",
     capabilities: { intelligence: 5, speed: 4, cost: 1 },
     tags: ["vision", "reasoning", "tools", "coding"],
     supportsTemperature: false,
@@ -280,7 +340,52 @@ export const MODELS = [
     tags: ["vision", "tools"],
   },
 
+  // ── OpenAI Account (Codex App-Server) ─────────────────────────────────────
+  {
+    id: "openai-account-codex",
+    provider: "openai-account",
+    label: "Codex Account",
+    hint: "ChatGPT",
+    description: "Codex models available through your ChatGPT account.",
+    capabilities: { intelligence: 5, speed: 4, cost: 5 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+    supportsTemperature: false,
+  },
+
   // ── Anthropic ─────────────────────────────────────────────────────────────
+  {
+    id: "claude-opus-5",
+    provider: "anthropic",
+    label: "Claude Opus 5",
+    hint: "Frontier",
+    description:
+      "Anthropic's premier frontier model for complex reasoning and long-horizon agentic coding.",
+    capabilities: { intelligence: 5, speed: 3, cost: 1 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+    supportsTemperature: false,
+  },
+  {
+    id: "claude-sonnet-5",
+    provider: "anthropic",
+    label: "Claude Sonnet 5",
+    hint: "Balanced",
+    description:
+      "Best combination of Claude intelligence, coding excellence, and speed.",
+    capabilities: { intelligence: 5, speed: 4, cost: 3 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+    supportsTemperature: false,
+  },
+  {
+    id: "claude-haiku-5",
+    provider: "anthropic",
+    label: "Claude Haiku 5",
+    hint: "Fast",
+    description:
+      "Ultra-fast, responsive next-gen Claude for everyday tasks and agent loops.",
+    capabilities: { intelligence: 4, speed: 5, cost: 4 },
+    tags: ["vision", "tools", "coding"],
+    supportsTemperature: false,
+  },
   {
     id: "claude-fable-5",
     provider: "anthropic",
@@ -293,22 +398,12 @@ export const MODELS = [
     supportsTemperature: false,
   },
   {
-    id: "claude-sonnet-5",
-    provider: "anthropic",
-    label: "Claude Sonnet 5",
-    hint: "Balanced",
-    description: "Best combination of Claude intelligence and speed.",
-    capabilities: { intelligence: 5, speed: 4, cost: 3 },
-    tags: ["vision", "reasoning", "tools", "coding"],
-    supportsTemperature: false,
-  },
-  {
     id: "claude-opus-4-8",
     provider: "anthropic",
     label: "Claude Opus 4.8",
     hint: "Best",
     description:
-      "Anthropic's most capable model for complex reasoning and long-horizon agentic coding.",
+      "Previous-gen flagship model for complex reasoning and long-horizon agentic coding.",
     capabilities: { intelligence: 5, speed: 2, cost: 1 },
     tags: ["vision", "reasoning", "tools", "coding"],
     supportsTemperature: false,
@@ -353,6 +448,36 @@ export const MODELS = [
 
   // ── Google ────────────────────────────────────────────────────────────────
   {
+    id: "gemini-3.8-pro",
+    provider: "google",
+    label: "Gemini 3.8 Pro",
+    hint: "Flagship",
+    description:
+      "Google's most capable multimodal frontier model with 2M context and deep reasoning.",
+    capabilities: { intelligence: 5, speed: 4, cost: 2 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+  },
+  {
+    id: "gemini-3.8-flash",
+    provider: "google",
+    label: "Gemini 3.8 Flash",
+    hint: "Fast",
+    description:
+      "High-intelligence, extremely fast multimodal reasoning model with 2M context.",
+    capabilities: { intelligence: 5, speed: 5, cost: 3 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+  },
+  {
+    id: "gemini-3.5-pro",
+    provider: "google",
+    label: "Gemini 3.5 Pro",
+    hint: "Stable",
+    description:
+      "Advanced multimodal reasoning and long-context understanding.",
+    capabilities: { intelligence: 5, speed: 3, cost: 2 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+  },
+  {
     id: "gemini-3.5-flash",
     provider: "google",
     label: "Gemini 3.5 Flash",
@@ -374,7 +499,7 @@ export const MODELS = [
     id: "gemini-3.1-pro-preview",
     provider: "google",
     label: "Gemini 3.1 Pro",
-    hint: "Flagship",
+    hint: "Previous",
     description: "Strong reasoning, 1M context.",
     capabilities: { intelligence: 5, speed: 3, cost: 2 },
     tags: ["vision", "reasoning", "tools", "coding"],
@@ -708,17 +833,22 @@ export function modelUsesReasoningTokens(
   );
   return (
     (model?.tags?.includes("reasoning") ?? false) ||
-    (provider === "openai" && /^gpt-5(?:[.-]|$)/.test(modelId)) ||
+    (provider === "openai" && /^gpt-[56](?:[.-]|$)/.test(modelId)) ||
     /\bgpt-oss\b/i.test(modelId)
   );
 }
 
-export const DEFAULT_MODEL_ID: ModelId = "gpt-5.4-mini";
+export const DEFAULT_MODEL_ID: ModelId = "gpt-6.1";
 
 /** Approximate context window (in tokens) per model. Used for the
  *  context-usage indicator in the AI mini-window header. Conservative
  *  estimates — actual provider limits may shift. */
 export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
+  "gpt-6.1": 1_050_000,
+  "gpt-6.1-terra": 1_050_000,
+  "gpt-6.1-luna": 1_050_000,
+  "gpt-6.1-codex": 1_050_000,
+  "gpt-6.0-codex": 1_050_000,
   "gpt-5.6": 1_050_000,
   "gpt-5.6-terra": 1_050_000,
   "gpt-5.6-luna": 1_050_000,
@@ -728,13 +858,19 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "gpt-5.4-nano": 400_000,
   "gpt-5.3-codex": 400_000,
   "gpt-4.1-mini": 128_000,
-  "claude-fable-5": 1_000_000,
+  "openai-account-codex": 1_050_000,
+  "claude-opus-5": 1_000_000,
   "claude-sonnet-5": 1_000_000,
+  "claude-haiku-5": 500_000,
+  "claude-fable-5": 1_000_000,
   "claude-opus-4-7": 1_000_000,
   "claude-opus-4-8": 1_000_000,
   "claude-sonnet-4-6": 1_000_000,
   "claude-haiku-4-5": 200_000,
   "claude-opus-4-6": 1_000_000,
+  "gemini-3.8-pro": 2_000_000,
+  "gemini-3.8-flash": 2_000_000,
+  "gemini-3.5-pro": 1_000_000,
   "gemini-3.5-flash": 1_000_000,
   "gemini-3.1-flash-lite": 1_000_000,
   "gemini-3.1-pro-preview": 1_000_000,
@@ -784,6 +920,11 @@ export type ModelPricing = {
 };
 
 export const MODEL_PRICING: Record<string, ModelPricing> = {
+  "gpt-6.1": { input: 5, output: 30, cacheRead: 0.5 },
+  "gpt-6.1-terra": { input: 2.5, output: 15, cacheRead: 0.25 },
+  "gpt-6.1-luna": { input: 1, output: 6, cacheRead: 0.1 },
+  "gpt-6.1-codex": { input: 2, output: 10, cacheRead: 0.2 },
+  "gpt-6.0-codex": { input: 1.5, output: 6, cacheRead: 0.15 },
   "gpt-5.6": { input: 5, output: 30, cacheRead: 0.5 },
   "gpt-5.6-terra": { input: 2.5, output: 15, cacheRead: 0.25 },
   "gpt-5.6-luna": { input: 1, output: 6, cacheRead: 0.1 },
@@ -793,13 +934,19 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   "gpt-5.4-nano": { input: 0.2, output: 1.25, cacheRead: 0.02 },
   "gpt-5.3-codex": { input: 1.5, output: 6, cacheRead: 0.15 },
   "gpt-4.1-mini": { input: 0.4, output: 1.6, cacheRead: 0.1 },
-  "claude-fable-5": { input: 10, output: 50, cacheRead: 1 },
+  "openai-account-codex": { input: 0, output: 0 },
+  "claude-opus-5": { input: 10, output: 50, cacheRead: 1 },
   "claude-sonnet-5": { input: 3, output: 15, cacheRead: 0.3 },
+  "claude-haiku-5": { input: 0.8, output: 4, cacheRead: 0.08 },
+  "claude-fable-5": { input: 10, output: 50, cacheRead: 1 },
   "claude-opus-4-7": { input: 15, output: 75, cacheRead: 1.5 },
   "claude-opus-4-8": { input: 5, output: 25, cacheRead: 0.5 },
   "claude-opus-4-6": { input: 15, output: 75, cacheRead: 1.5 },
   "claude-sonnet-4-6": { input: 3, output: 15, cacheRead: 0.3 },
   "claude-haiku-4-5": { input: 1, output: 5, cacheRead: 0.1 },
+  "gemini-3.8-pro": { input: 1.25, output: 10, cacheRead: 0.31 },
+  "gemini-3.8-flash": { input: 0.3, output: 2.5, cacheRead: 0.075 },
+  "gemini-3.5-pro": { input: 1.25, output: 10, cacheRead: 0.31 },
   "gemini-3.5-flash": { input: 0.3, output: 2.5, cacheRead: 0.075 },
   "gemini-3.1-flash-lite": { input: 0.075, output: 0.3, cacheRead: 0.015 },
   "gemini-3.1-pro-preview": { input: 1.25, output: 10, cacheRead: 0.31 },
@@ -840,6 +987,7 @@ export function estimateCost(
 
 /** Providers that do not require an API key (local servers, key-optional). */
 export const KEYLESS_PROVIDERS: readonly ProviderId[] = [
+  "openai-account",
   "lmstudio",
   "mlx",
   "ollama",
@@ -853,6 +1001,7 @@ export function providerNeedsKey(id: ProviderId): boolean {
 /** True for providers that accept an API key — required *or* optional.
  *  Used by Settings to decide whether to render a key card at all. */
 export function providerSupportsKey(id: ProviderId): boolean {
+  if (id === "openai-account") return false;
   if (providerNeedsKey(id)) return true;
   const p = getProvider(id);
   return !!p.keyOptional;
@@ -868,8 +1017,8 @@ export const DEFAULT_AUTOCOMPLETE_MODEL: Partial<Record<ProviderId, string>> = {
   groq: "openai/gpt-oss-20b",
   lmstudio: "qwen2.5-coder-7b-instruct",
   openai: "gpt-5.4-nano",
-  anthropic: "claude-haiku-4-5",
-  google: "gemini-2.5-flash",
+  anthropic: "claude-haiku-5",
+  google: "gemini-3.8-flash",
   xai: "grok-4.3",
   deepseek: "deepseek-v4-flash",
   openrouter: "openai/gpt-5.4-mini",
@@ -879,7 +1028,10 @@ export const DEFAULT_AUTOCOMPLETE_MODEL: Partial<Record<ProviderId, string>> = {
 /** Curated list of fast models suitable for inline completion (speed ≥ 4). */
 export function getAutocompleteEligibleModels(): readonly ModelInfo[] {
   return MODELS.filter(
-    (m) => m.capabilities.speed >= 4 && m.id !== "openai-compatible-custom",
+    (m) =>
+      m.provider !== "openai-account" &&
+      m.capabilities.speed >= 4 &&
+      m.id !== "openai-compatible-custom",
   );
 }
 

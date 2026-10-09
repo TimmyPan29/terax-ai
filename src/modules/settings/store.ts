@@ -1,4 +1,9 @@
 import {
+  type AgentLaunchCommands,
+  DEFAULT_AGENT_LAUNCH_COMMANDS,
+  normalizeAgentLaunchCommands,
+} from "@/modules/agents/lib/launcher";
+import {
   type AutocompleteProviderId,
   type CustomEndpoint,
   DEFAULT_AUTOCOMPLETE_MODEL,
@@ -14,11 +19,6 @@ import {
   type SttProvider,
   WHISPERCPP_DEFAULT_BASE_URL,
 } from "@/modules/ai/config";
-import {
-  type AgentLaunchCommands,
-  DEFAULT_AGENT_LAUNCH_COMMANDS,
-  normalizeAgentLaunchCommands,
-} from "@/modules/agents/lib/launcher";
 import type { KeyBinding, ShortcutId } from "@/modules/shortcuts/shortcuts";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { LazyStore } from "@tauri-apps/plugin-store";
@@ -147,6 +147,8 @@ export type Preferences = {
   openaiCompatibleContextLimit: number;
   customEndpoints: CustomEndpoint[];
   openrouterModelId: string;
+  codexModelId: string;
+  codexReasoningEffort: string;
   sttProvider: SttProvider;
   groqSttModel: string;
   whispercppBaseURL: string;
@@ -242,6 +244,8 @@ const KEY_OPENAI_COMPAT_MODEL_ID = "openaiCompatibleModelId";
 const KEY_OPENAI_COMPAT_CONTEXT_LIMIT = "openaiCompatibleContextLimit";
 const KEY_CUSTOM_ENDPOINTS = "customEndpoints";
 const KEY_OPENROUTER_MODEL_ID = "openrouterModelId";
+const KEY_CODEX_MODEL_ID = "codexModelId";
+const KEY_CODEX_REASONING_EFFORT = "codexReasoningEffort";
 const KEY_STT_PROVIDER = "sttProvider";
 const KEY_GROQ_STT_MODEL = "groqSttModel";
 const KEY_WHISPERCPP_BASE_URL = "whispercppBaseURL";
@@ -335,6 +339,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   openaiCompatibleContextLimit: 128_000,
   customEndpoints: [],
   openrouterModelId: "",
+  codexModelId: "",
+  codexReasoningEffort: "",
   sttProvider: DEFAULT_STT_PROVIDER,
   groqSttModel: "whisper-large-v3-turbo",
   whispercppBaseURL: WHISPERCPP_DEFAULT_BASE_URL,
@@ -475,6 +481,11 @@ export async function loadPreferences(): Promise<Preferences> {
     openrouterModelId:
       get<string>(KEY_OPENROUTER_MODEL_ID) ??
       DEFAULT_PREFERENCES.openrouterModelId,
+    codexModelId:
+      get<string>(KEY_CODEX_MODEL_ID) ?? DEFAULT_PREFERENCES.codexModelId,
+    codexReasoningEffort:
+      get<string>(KEY_CODEX_REASONING_EFFORT) ??
+      DEFAULT_PREFERENCES.codexReasoningEffort,
     sttProvider:
       get<SttProvider>(KEY_STT_PROVIDER) ?? DEFAULT_PREFERENCES.sttProvider,
     groqSttModel:
@@ -745,6 +756,14 @@ export async function setOpenrouterModelId(value: string): Promise<void> {
   await writePref(KEY_OPENROUTER_MODEL_ID, value);
 }
 
+export async function setCodexModelId(value: string): Promise<void> {
+  await writePref(KEY_CODEX_MODEL_ID, value);
+}
+
+export async function setCodexReasoningEffort(value: string): Promise<void> {
+  await writePref(KEY_CODEX_REASONING_EFFORT, value);
+}
+
 export async function setSttProvider(value: SttProvider): Promise<void> {
   await writePref(KEY_STT_PROVIDER, value);
 }
@@ -989,6 +1008,8 @@ export async function onPreferencesChange(
     [KEY_OPENAI_COMPAT_CONTEXT_LIMIT]: "openaiCompatibleContextLimit",
     [KEY_CUSTOM_ENDPOINTS]: "customEndpoints",
     [KEY_OPENROUTER_MODEL_ID]: "openrouterModelId",
+    [KEY_CODEX_MODEL_ID]: "codexModelId",
+    [KEY_CODEX_REASONING_EFFORT]: "codexReasoningEffort",
     [KEY_STT_PROVIDER]: "sttProvider",
     [KEY_GROQ_STT_MODEL]: "groqSttModel",
     [KEY_WHISPERCPP_BASE_URL]: "whispercppBaseURL",

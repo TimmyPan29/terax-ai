@@ -6,6 +6,8 @@ export type SessionMeta = {
   title: string;
   createdAt: number;
   updatedAt: number;
+  codexThreadId?: string;
+  codexContextImported?: boolean;
 };
 
 const STORE_PATH = "terax-ai-sessions.json";

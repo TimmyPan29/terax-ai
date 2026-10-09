@@ -1,6 +1,7 @@
 pub mod agent;
 #[cfg(target_os = "macos")]
 pub mod app_menu;
+pub mod codex;
 pub mod control;
 pub mod fs;
 pub mod git;

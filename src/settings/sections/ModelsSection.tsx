@@ -15,12 +15,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import {
-  getBindingTokens,
-  SHORTCUTS,
-} from "@/modules/shortcuts/shortcuts";
+import { useCodexStore } from "@/modules/ai/codex/store";
 import {
   type CustomEndpoint,
   compatModelIdForEndpoint,
@@ -58,6 +56,8 @@ import {
   setAutocompleteModelId,
   setAutocompleteProvider,
   setAutocompleteTrigger,
+  setCodexModelId,
+  setCodexReasoningEffort,
   setCustomEndpoints,
   setDefaultModel,
   setFavoriteModelIds,
@@ -76,6 +76,7 @@ import {
   setSttProvider,
   setWhispercppBaseURL,
 } from "@/modules/settings/store";
+import { getBindingTokens, SHORTCUTS } from "@/modules/shortcuts/shortcuts";
 import {
   Add01Icon,
   ArrowDown01Icon,
@@ -95,7 +96,14 @@ import { SectionHeader } from "../components/SectionHeader";
 
 type KeysMap = Record<ProviderId, string | null>;
 
-const isLocalProvider = (id: ProviderId): boolean => !providerNeedsKey(id);
+const LOCAL_PROVIDER_IDS: ReadonlySet<ProviderId> = new Set([
+  "lmstudio",
+  "mlx",
+  "ollama",
+  "openai-compatible",
+]);
+
+const isLocalProvider = (id: ProviderId): boolean => LOCAL_PROVIDER_IDS.has(id);
 
 type LocalMeta = {
   urlPlaceholder: string;
@@ -167,6 +175,23 @@ export function ModelsSection() {
   );
   const openrouterModelId = usePreferencesStore((s) => s.openrouterModelId);
   const customEndpoints = usePreferencesStore((s) => s.customEndpoints);
+  const codexModelId = usePreferencesStore((s) => s.codexModelId);
+  const codexReasoningEffort = usePreferencesStore(
+    (s) => s.codexReasoningEffort,
+  );
+
+  const codexPhase = useCodexStore((s) => s.phase);
+  const codexAccount = useCodexStore((s) => s.account);
+  const codexModels = useCodexStore((s) => s.models);
+  const codexError = useCodexStore((s) => s.error);
+  const codexRateLimits = useCodexStore((s) => s.rateLimits);
+  const refreshCodex = useCodexStore((s) => s.refresh);
+  const loginCodex = useCodexStore((s) => s.login);
+  const logoutCodex = useCodexStore((s) => s.logout);
+
+  useEffect(() => {
+    void refreshCodex();
+  }, [refreshCodex]);
 
   useEffect(() => {
     void getAllKeys().then(setKeys);
@@ -303,6 +328,7 @@ export function ModelsSection() {
   };
 
   const isConfigured = (id: ProviderId): boolean => {
+    if (id === "openai-account") return codexPhase === "connected";
     if (id === "openrouter") return !!keys?.[id] && !!openrouterModelId.trim();
     if (!isLocalProvider(id)) return !!keys?.[id];
     const cfg = localConfig(id);
@@ -329,7 +355,9 @@ export function ModelsSection() {
   );
 
   const removeProvider = (id: ProviderId) => {
-    if (id === "openrouter") {
+    if (id === "openai-account") {
+      void logoutCodex();
+    } else if (id === "openrouter") {
       void setOpenrouterModelId("");
       void onClearKey(id);
     } else if (isLocalProvider(id)) {
@@ -391,7 +419,24 @@ export function ModelsSection() {
         ) : (
           <div className="flex flex-col gap-2">
             {visibleProviders.map((p) =>
-              p.id === "openrouter" ? (
+              p.id === "openai-account" ? (
+                <CodexAccountCard
+                  key={p.id}
+                  phase={codexPhase}
+                  account={codexAccount}
+                  models={codexModels}
+                  error={codexError}
+                  rateLimits={codexRateLimits}
+                  modelId={codexModelId}
+                  reasoningEffort={codexReasoningEffort}
+                  onLogin={loginCodex}
+                  onRefresh={refreshCodex}
+                  onLogout={logoutCodex}
+                  onModelChange={setCodexModelId}
+                  onEffortChange={setCodexReasoningEffort}
+                  onRemove={() => removeProvider(p.id)}
+                />
+              ) : p.id === "openrouter" ? (
                 <LocalProviderCard
                   key={p.id}
                   provider={p}
@@ -814,6 +859,207 @@ function AutocompleteRow({
         </p>
       ) : null}
     </>
+  );
+}
+
+function CodexAccountCard({
+  phase,
+  account,
+  models,
+  error,
+  rateLimits,
+  modelId,
+  reasoningEffort,
+  onLogin,
+  onRefresh,
+  onLogout,
+  onModelChange,
+  onEffortChange,
+  onRemove,
+}: {
+  phase: ReturnType<typeof useCodexStore.getState>["phase"];
+  account: ReturnType<typeof useCodexStore.getState>["account"];
+  models: ReturnType<typeof useCodexStore.getState>["models"];
+  error: string | null;
+  rateLimits: Record<string, unknown> | null;
+  modelId: string;
+  reasoningEffort: string;
+  onLogin: () => Promise<void>;
+  onRefresh: () => Promise<void>;
+  onLogout: () => Promise<void>;
+  onModelChange: (value: string) => Promise<void>;
+  onEffortChange: (value: string) => Promise<void>;
+  onRemove: () => void;
+}) {
+  const selected =
+    models.find((model) => model.id === modelId || model.model === modelId) ??
+    models.find((model) => model.isDefault) ??
+    models[0];
+  const efforts = selected?.supportedReasoningEfforts ?? [];
+  const primary = (
+    rateLimits?.primary && typeof rateLimits.primary === "object"
+      ? rateLimits.primary
+      : null
+  ) as { usedPercent?: unknown } | null;
+  const usedPercent =
+    typeof primary?.usedPercent === "number" ? primary.usedPercent : null;
+
+  useEffect(() => {
+    if (phase !== "connected" || !selected) return;
+    if (!modelId) void onModelChange(selected.id);
+    const validEffort = efforts.some(
+      (option) => option.reasoningEffort === reasoningEffort,
+    );
+    if (!validEffort) {
+      void onEffortChange(selected.defaultReasoningEffort);
+    }
+  }, [
+    phase,
+    selected,
+    modelId,
+    reasoningEffort,
+    efforts,
+    onModelChange,
+    onEffortChange,
+  ]);
+
+  return (
+    <div className="flex flex-col gap-2.5 rounded-lg border border-border/60 bg-card/60 px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <ProviderIcon provider="openai-account" size={15} />
+        <span className="text-[12.5px] font-medium">OpenAI Account</span>
+        {phase === "connected" ? (
+          <Badge
+            variant="outline"
+            className="ml-1 h-4 gap-1 border-border/60 bg-muted/40 px-1.5 text-[10px] font-normal text-muted-foreground"
+          >
+            <HugeiconsIcon
+              icon={CheckmarkCircle02Icon}
+              size={9}
+              strokeWidth={2}
+            />
+            Connected
+          </Badge>
+        ) : null}
+        <button
+          type="button"
+          onClick={() =>
+            void openUrl("https://developers.openai.com/codex/app-server")
+          }
+          className="ml-auto inline-flex items-center gap-0.5 text-[10.5px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          Docs
+          <HugeiconsIcon
+            icon={ArrowUpRight01Icon}
+            size={11}
+            strokeWidth={1.75}
+          />
+        </button>
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={onRemove}
+          title="Remove provider"
+          className="size-7 text-muted-foreground hover:text-destructive"
+        >
+          <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={1.75} />
+        </Button>
+      </div>
+
+      {phase === "loading" ? (
+        <div className="flex items-center gap-2 py-2 text-[11px] text-muted-foreground">
+          <Spinner className="size-3" />
+          Checking Codex account...
+        </div>
+      ) : phase === "connected" && account ? (
+        <>
+          <div className="text-[10.5px] text-muted-foreground">
+            {account.email} | {account.planType}
+            {usedPercent == null ? "" : ` | ${usedPercent}% limit used`}
+          </div>
+          <FieldRow label="Model">
+            <select
+              value={selected?.id ?? ""}
+              onChange={(event) => void onModelChange(event.target.value)}
+              className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-[11.5px] outline-none"
+            >
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.displayName}
+                </option>
+              ))}
+            </select>
+          </FieldRow>
+          <FieldRow label="Reasoning">
+            <select
+              value={
+                efforts.some(
+                  (option) => option.reasoningEffort === reasoningEffort,
+                )
+                  ? reasoningEffort
+                  : (selected?.defaultReasoningEffort ?? "")
+              }
+              onChange={(event) => void onEffortChange(event.target.value)}
+              className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-[11.5px] outline-none"
+            >
+              {efforts.map((option) => (
+                <option
+                  key={option.reasoningEffort}
+                  value={option.reasoningEffort}
+                >
+                  {option.reasoningEffort}
+                </option>
+              ))}
+            </select>
+          </FieldRow>
+          <div className="flex justify-end gap-1.5">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void onRefresh()}
+              className="h-7 text-[11px]"
+            >
+              Refresh
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void onLogout()}
+              className="h-7 text-[11px]"
+            >
+              Sign out
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-[10.5px] leading-relaxed text-muted-foreground">
+            Uses your ChatGPT account through the locally installed Codex CLI.
+            Terax never reads or stores the OAuth token.
+          </p>
+          {error ? (
+            <p className="text-[10.5px] text-destructive">{error}</p>
+          ) : null}
+          <div className="flex justify-end gap-1.5">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void onRefresh()}
+              className="h-7 text-[11px]"
+            >
+              Check again
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => void onLogin()}
+              className="h-7 text-[11px]"
+            >
+              Sign in with ChatGPT
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
