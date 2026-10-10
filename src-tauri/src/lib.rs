@@ -387,7 +387,10 @@ pub fn run() {
                 // on process exit; kill explicitly.
                 tauri::RunEvent::Exit => {
                     #[cfg(target_os = "macos")]
-                    modules::window_presentation::macos::uninstall();
+                    {
+                        modules::native_shortcuts::macos::uninstall();
+                        modules::window_presentation::macos::uninstall();
+                    }
                     #[cfg(target_os = "windows")]
                     modules::native_shortcuts::windows::uninstall();
                     if let Some(state) = app.try_state::<lsp::LspState>() {
