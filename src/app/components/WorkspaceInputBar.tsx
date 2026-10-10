@@ -27,6 +27,7 @@ const AiComposerInput = lazy(() =>
 );
 
 export const TOGGLE_BLOCK_INPUT_EVENT = "terax:toggle-block-input";
+export const SET_BLOCK_INPUT_MODE_EVENT = "terax:set-block-input-mode";
 
 type Props = {
   isBlockTab: boolean;
@@ -97,8 +98,18 @@ export function WorkspaceInputBar({
     if (!showToggle) return;
     const onToggle = () =>
       switchModeRef.current(modeRef.current === "shell" ? "ai" : "shell");
+    const onSetMode = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      if (event.detail === "ai" || event.detail === "shell") {
+        switchModeRef.current(event.detail);
+      }
+    };
     window.addEventListener(TOGGLE_BLOCK_INPUT_EVENT, onToggle);
-    return () => window.removeEventListener(TOGGLE_BLOCK_INPUT_EVENT, onToggle);
+    window.addEventListener(SET_BLOCK_INPUT_MODE_EVENT, onSetMode);
+    return () => {
+      window.removeEventListener(TOGGLE_BLOCK_INPUT_EVENT, onToggle);
+      window.removeEventListener(SET_BLOCK_INPUT_MODE_EVENT, onSetMode);
+    };
   }, [showToggle]);
 
   if (!mounted) return null;

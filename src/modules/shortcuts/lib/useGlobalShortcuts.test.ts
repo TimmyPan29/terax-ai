@@ -67,6 +67,42 @@ function mount(close = vi.fn(), isDisabled = vi.fn(() => false)) {
   return close;
 }
 
+describe("AI visibility shortcut", () => {
+  it("dispatches Cmd+I once and consumes the default browser action", () => {
+    const toggle = vi.fn();
+    // biome-ignore lint/correctness/useHookAtTopLevel: React hooks are mocked to exercise shortcut dispatch.
+    useGlobalShortcuts({ "ai.toggle": toggle });
+    cleanup = state.effects[0]();
+    const press = new KeyboardEvent("keydown", { key: "i", metaKey: true });
+    window.dispatchEvent(press);
+    expect(toggle).toHaveBeenCalledOnce();
+    expect(press.defaultPrevented).toBe(true);
+    const repeat = new TestKeyboardEvent("keydown", {
+      key: "i",
+      metaKey: true,
+    });
+    repeat.repeat = true;
+    window.dispatchEvent(repeat);
+    expect(toggle).toHaveBeenCalledOnce();
+  });
+
+  it("honors a customized AI toggle binding", () => {
+    state.shortcuts = { "ai.toggle": [{ meta: true, key: "o" }] };
+    const toggle = vi.fn();
+    // biome-ignore lint/correctness/useHookAtTopLevel: React hooks are mocked to exercise shortcut dispatch.
+    useGlobalShortcuts({ "ai.toggle": toggle });
+    cleanup = state.effects[0]();
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "i", metaKey: true }),
+    );
+    expect(toggle).not.toHaveBeenCalled();
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "o", metaKey: true }),
+    );
+    expect(toggle).toHaveBeenCalledOnce();
+  });
+});
+
 describe("native pane close", () => {
   it("closes through the existing handler without a parent DOM key event", () => {
     const close = mount();

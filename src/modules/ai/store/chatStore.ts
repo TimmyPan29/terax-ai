@@ -126,6 +126,7 @@ type StoreState = {
   openPanel: () => void;
   closePanel: () => void;
   togglePanel: () => void;
+  toggleAgent: () => void;
 
   focusSignal: number;
   pendingPrefill: string | null;
@@ -250,6 +251,17 @@ export const useChatStore = create<StoreState>((set, get) => ({
   openPanel: () => set({ panelOpen: true }),
   closePanel: () => set({ panelOpen: false }),
   togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
+  toggleAgent: () =>
+    set((s) => {
+      const open = !s.panelOpen && !s.mini.open;
+      return {
+        panelOpen: open,
+        mini: { open },
+        ...(open
+          ? { focusSignal: s.focusSignal + 1, pendingPrefill: null }
+          : {}),
+      };
+    }),
 
   focusSignal: 0,
   pendingPrefill: null,

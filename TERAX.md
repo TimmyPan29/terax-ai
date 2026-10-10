@@ -72,7 +72,10 @@ block-editor, and readline bindings, including when Kitty keyboard mode is activ
 The native New Terminal Tab and Close Tab or Pane menus own Cmd-T and Cmd-W
 and forward them to the focused
 main window's shortcut dispatcher, including when a PDF or preview iframe has
-focus. Duplicate native Close Window items have no accelerator. Tab and terminal
+focus. The macOS Tauri window subclass consumes native `cancelOperation:` so
+Escape keeps the window in fullscreen while WebView and terminal Escape handlers
+continue to work; installation resolves through macOS KVO subclasses.
+Duplicate native Close Window items have no accelerator. Tab and terminal
 pane closure retains the app's close guards; auxiliary windows close themselves.
 Windows main-window Ctrl-W and Ctrl-T are handled by WebView2 accelerator events,
 including native PDF focus. Repeat keydowns are consumed once; actions are queued
@@ -244,6 +247,7 @@ BYOK. Cloud providers via `@ai-sdk/*`: **OpenAI, Anthropic, Google, xAI, Cerebra
 - **Sub-agents** (`agents/registry.ts`, `agents/runSubagent.ts`): named sub-agents with their own system prompts and tool subsets, invoked by the main agent via `run_subagent` tool.
 - **Sessions** (`lib/sessions.ts` + `store/chatStore.ts`): conversations are organized into named sessions, persisted via `tauri-plugin-store` at `terax-ai-sessions.json` (list + `activeId` + per-session `messages:<id>` keys). `chatStore.ts` keeps a module-scoped `Map<sessionId, Chat<UIMessage>>`; `getOrCreateChat(apiKey, sessionId)` lazily constructs a `Chat`, seeded with messages from a hydration map populated by `hydrateSessions()` (called once from `App.tsx`). `AgentRunBridge` mirrors active-session messages to disk on every change and auto-derives titles from the first user message. Switching the API key wipes the chat map; sessions persist.
 - **Response rendering** (`components/AiMessageResponse.tsx`): chat lazily loads the Markdown preview math parser, KaTeX styles, and Mermaid plugin when content needs them. Completed messages use static parsing; live text retains streaming parsing. Mermaid code fences bypass the chat code override, while other code blocks and links retain chat behavior.
+- **AI visibility shortcut**: Cmd/Ctrl-I atomically toggles the input bar and chat window together. If either is open it closes both; opening both requests composer focus and switches Blocks input to AI. Closing both returns Blocks input to Shell. Cmd/Ctrl-Shift-I retains the independent chat-window toggle.
 - **Composer** (`lib/composer.tsx`): React context providing shared input state (text, attachments, voice) for both the docked `AiInputBar` and any other surface. Attachments include image, text-file, and `selection` kinds - selections come from `useChatStore.attachSelection(text, source)` (drained into chips, not pasted into the textarea) and are wrapped as `<selection source="terminal|editor">…</selection>` blocks at submit. Composer derives `isBusy` from `agentMeta.status` so it can mount safely before sessions hydrate.
 - **Voice input**: streamed transcription pipeline. Toggled from the composer.
 - **Live context bridge**: `App.tsx` calls `setLive({ getCwd, getTerminalContext, … })` so tools can read the *currently active* terminal's cwd + last 300 lines of buffer. Lazy by design - don't pre-snapshot.

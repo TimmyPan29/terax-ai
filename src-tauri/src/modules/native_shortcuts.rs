@@ -1,3 +1,101 @@
+#[cfg(target_os = "macos")]
+pub mod macos {
+    use objc2::{
+        ffi,
+        runtime::{AnyClass, AnyObject, Imp, Sel},
+        sel,
+    };
+    use std::{ffi::CStr, io};
+    use tauri::{AppHandle, Manager};
+
+    extern "C-unwind" fn cancel_operation(_: &AnyObject, _: Sel, _: *mut AnyObject) {}
+
+    fn prevent_escape_fullscreen_exit(class: &AnyClass) -> bool {
+        // Override only the app's window subclass. WebView responders still receive Escape.
+        unsafe {
+            ffi::class_addMethod(
+                (class as *const AnyClass).cast_mut(),
+                sel!(cancelOperation:),
+                std::mem::transmute::<extern "C-unwind" fn(&AnyObject, Sel, *mut AnyObject), Imp>(
+                    cancel_operation,
+                ),
+                c"v@:@".as_ptr(),
+            )
+            .as_bool()
+        }
+    }
+
+    fn find_window_class<'a>(mut class: &'a AnyClass, name: &CStr) -> Option<&'a AnyClass> {
+        while class.name() != name {
+            class = class.superclass()?;
+        }
+        Some(class)
+    }
+
+    pub fn install(app: &AppHandle) -> tauri::Result<()> {
+        let window = app
+            .get_webview_window("main")
+            .ok_or_else(|| io::Error::other("main window is missing"))?;
+        let pointer = window.ns_window()?;
+        // Setup runs on the main thread; Tauri owns this window for the app's lifetime.
+        let native = unsafe { &*pointer.cast::<AnyObject>() };
+        let class = find_window_class(native.class(), c"TaoWindow")
+            .ok_or_else(|| io::Error::other("Tauri window subclass is missing"))?;
+        if !prevent_escape_fullscreen_exit(class) {
+            return Err(
+                io::Error::other("could not install native Escape fullscreen guard").into(),
+            );
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use objc2::{msg_send, rc::Retained, runtime::ClassBuilder, ClassType};
+        use objc2_foundation::NSObject;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static CANCELS: AtomicUsize = AtomicUsize::new(0);
+
+        extern "C-unwind" fn parent_cancel(_: &AnyObject, _: Sel, _: *mut AnyObject) {
+            CANCELS.fetch_add(1, Ordering::Relaxed);
+        }
+
+        #[test]
+        fn escape_guard_overrides_window_fallback_without_changing_parent() {
+            let mut parent =
+                ClassBuilder::new(c"TeraxEscapeTestParent", NSObject::class()).unwrap();
+            unsafe {
+                parent.add_method(
+                    sel!(cancelOperation:),
+                    parent_cancel as extern "C-unwind" fn(_, _, _),
+                );
+            }
+            let parent = parent.register();
+            let child = ClassBuilder::new(c"TeraxEscapeTestWindow", parent)
+                .unwrap()
+                .register();
+            let observed = ClassBuilder::new(c"TeraxEscapeTestObservedWindow", child)
+                .unwrap()
+                .register();
+            let target = find_window_class(observed, c"TeraxEscapeTestWindow").unwrap();
+            assert_eq!(target, child);
+            assert!(find_window_class(observed, c"TeraxMissingWindowClass").is_none());
+            assert!(prevent_escape_fullscreen_exit(target));
+            let sender = std::ptr::null_mut::<AnyObject>();
+            unsafe {
+                let window: Retained<NSObject> = msg_send![observed, new];
+                let _: () = msg_send![&window, cancelOperation: sender];
+                assert_eq!(CANCELS.load(Ordering::Relaxed), 0);
+                let object: Retained<NSObject> = msg_send![parent, new];
+                let _: () = msg_send![&object, cancelOperation: sender];
+                assert_eq!(CANCELS.load(Ordering::Relaxed), 1);
+            }
+        }
+    }
+}
+
 #[cfg(any(target_os = "windows", test))]
 fn windows_shortcut_event(
     key: u32,

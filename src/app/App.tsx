@@ -123,6 +123,7 @@ import {
 } from "react";
 import { CloseDialogs } from "./components/CloseDialogs";
 import {
+  SET_BLOCK_INPUT_MODE_EVENT,
   TOGGLE_BLOCK_INPUT_EVENT,
   WorkspaceInputBar,
 } from "./components/WorkspaceInputBar";
@@ -532,13 +533,13 @@ export default function App() {
       void openSettingsWindow("models");
       return;
     }
-    if (panelOpen) {
-      useChatStore.getState().closePanel();
-    } else {
-      openPanel();
-      focusInput(null);
-    }
-  }, [hasComposer, panelOpen, openPanel, focusInput]);
+    useChatStore.getState().toggleAgent();
+    window.dispatchEvent(
+      new CustomEvent(SET_BLOCK_INPUT_MODE_EVENT, {
+        detail: useChatStore.getState().panelOpen ? "ai" : "shell",
+      }),
+    );
+  }, [hasComposer]);
 
   const attachSelection = useChatStore((s) => s.attachSelection);
 

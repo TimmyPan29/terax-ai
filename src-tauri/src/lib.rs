@@ -215,7 +215,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(move |_app| {
             #[cfg(target_os = "macos")]
-            modules::window_presentation::macos::install(_app.handle());
+            {
+                modules::native_shortcuts::macos::install(_app.handle())?;
+                modules::window_presentation::macos::install(_app.handle());
+            }
             #[cfg(target_os = "windows")]
             if let Some(main) = _app.get_webview_window("main") {
                 let handle = _app.handle().clone();
