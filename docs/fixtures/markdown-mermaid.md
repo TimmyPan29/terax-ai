@@ -57,3 +57,15 @@ export function isMermaid(lang: string): boolean {
   return lang === "mermaid";
 }
 ```
+
+## Fullscreen Sizing
+
+Open this horizontal diagram and the vertical flowchart above in fullscreen.
+Both must retain every node and label, fit the viewport without stretching,
+and remain visible after zoom, reset, close, and reopen.
+Repeat in AI Chat with the same fenced Mermaid source on macOS WebKit.
+
+```mermaid
+graph LR
+    Bits --> QAM --> IFFT --> Channel --> FFT --> Decoder
+```

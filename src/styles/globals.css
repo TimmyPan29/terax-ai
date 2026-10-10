@@ -527,3 +527,11 @@ html *::-webkit-scrollbar {
     background-position: 0% center;
   }
 }
+
+/* WebKit needs explicit SVG dimensions; override Mermaid's inline width cap. */
+[data-streamdown="mermaid-fullscreen"] [role="img"] > svg {
+    width: 100%;
+    height: 100%;
+    max-width: 100% !important;
+    max-height: 100%;
+}
