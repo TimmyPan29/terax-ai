@@ -8,7 +8,7 @@ import {
   type ChatTransport,
   lastAssistantMessageIsCompleteWithApprovalResponses,
 } from "ai";
-import { providerNeedsKey, resolveModel } from "../config";
+import { providerNeedsKey, resolveModel, type ProviderId } from "../config";
 import { BUILTIN_AGENTS } from "../lib/agents";
 import { createContextAwareTransport } from "../lib/transport";
 import type { ToolContext } from "../tools/tools";

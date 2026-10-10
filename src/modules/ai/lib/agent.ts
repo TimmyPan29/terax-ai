@@ -97,6 +97,9 @@ export async function buildLanguageModel(
 
   let built: LanguageModel;
   switch (provider) {
+    case "openai-account": {
+      throw new Error("OpenAI account models require the Codex transport.");
+    }
     case "openai": {
       const { createOpenAI } = await import("@ai-sdk/openai");
       built = createOpenAI({ apiKey: key })(resolvedModelId);
