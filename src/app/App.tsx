@@ -1,3 +1,4 @@
+import { useNativeEscape } from "@/app/hooks/useNativeEscape";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -206,6 +207,7 @@ export default function App() {
     useState<GitHistorySearchHandle | null>(null);
   const { zoomIn, zoomOut, zoomReset } = useZoom();
   useApplyEditorFontSize();
+  useNativeEscape();
   const terminalPathDropTarget = useTerminalFileDrop();
   const explorerRef = useRef<FileExplorerHandle>(null);
 

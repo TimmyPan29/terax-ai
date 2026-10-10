@@ -1,3 +1,4 @@
+import { dispatchNativeEscape } from "@/modules/shortcuts/lib/nativeEscape";
 import type { GhosttyTerminalModelApi } from "@/modules/terminal/ghostty/GhosttyTerminalModel";
 import { readFile } from "node:fs/promises";
 import { TeraxGhostty } from "@terax/ghostty-core/adapted";
@@ -26,6 +27,85 @@ describe("terminalMouseModifiers", () => {
 });
 
 describe("GhosttyInputController", () => {
+  it.each(["ghostty-vt.wasm", "ghostty-vt-scalar.wasm"])(
+    "delivers bridged fullscreen Escape once to Vim and preserves Kitty releases (%s)",
+    async (artifact) => {
+      const bytes = await readFile(
+        new URL(
+          `../../../../../packages/ghostty-core/adapted/${artifact}`,
+          import.meta.url,
+        ),
+      );
+      const core = await TeraxGhostty.loadBytes(Uint8Array.from(bytes).buffer);
+      const terminal = core.createTerminal(80, 24);
+      const input = new FakeTextArea();
+      const onData = vi.fn();
+      const controller = new GhosttyInputController({
+        model: {
+          ...inputModel(),
+          encodeKey: (event) => terminal.encodeKey(event),
+        },
+        input: input as unknown as HTMLTextAreaElement,
+        pointerTarget: new FakeElement() as unknown as HTMLElement,
+        cellSize: () => ({ width: 10, height: 20 }),
+        isMac: true,
+        onCopy: () => false,
+        onData,
+      });
+      vi.stubGlobal(
+        "KeyboardEvent",
+        class extends Event {
+          constructor(kind: string, init: KeyboardEventInit) {
+            super(kind, init);
+            Object.assign(this, {
+              key: init.key,
+              code: init.code,
+              repeat: init.repeat,
+              shiftKey: init.shiftKey,
+              ctrlKey: init.ctrlKey,
+              altKey: init.altKey,
+              metaKey: init.metaKey,
+              getModifierState: () => false,
+              isComposing: false,
+              keyCode: 27,
+            });
+          }
+        },
+      );
+      const targetDocument = {
+        activeElement: input as unknown as Element,
+        dispatchEvent: vi.fn(),
+      };
+      const payload = {
+        kind: "keydown" as const,
+        repeat: false,
+        shiftKey: false,
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+      };
+      try {
+        dispatchNativeEscape(payload, targetDocument);
+        expect(onData).toHaveBeenCalledExactlyOnceWith(new Uint8Array([27]));
+        dispatchNativeEscape({ ...payload, kind: "keyup" }, targetDocument);
+        expect(onData).toHaveBeenCalledOnce();
+        expect(targetDocument.dispatchEvent).not.toHaveBeenCalled();
+        onData.mockClear();
+        terminal.write(new TextEncoder().encode("\x1b[=11u"));
+        dispatchNativeEscape(payload, targetDocument);
+        dispatchNativeEscape({ ...payload, repeat: true }, targetDocument);
+        dispatchNativeEscape({ ...payload, kind: "keyup" }, targetDocument);
+        expect(
+          onData.mock.calls.map(([data]) => new TextDecoder().decode(data)),
+        ).toEqual(["\x1b[27u", "\x1b[27;1:2u", "\x1b[27;1:3u"]);
+      } finally {
+        vi.unstubAllGlobals();
+        controller.dispose();
+        terminal.dispose();
+      }
+    },
+  );
+
   it.each(["ghostty-vt.wasm", "ghostty-vt-scalar.wasm"])(
     "leaves macOS Command shortcuts to the application in legacy and Kitty modes (%s)",
     async (artifact) => {

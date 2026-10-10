@@ -7,9 +7,11 @@ pub mod macos {
         runtime::{AnyClass, AnyObject, Bool, Imp, Sel},
         sel, MainThreadMarker,
     };
-    use objc2_app_kit::{NSEvent, NSEventMask, NSEventType, NSWindow, NSWindowStyleMask};
+    use objc2_app_kit::{
+        NSEvent, NSEventMask, NSEventModifierFlags, NSEventType, NSWindow, NSWindowStyleMask,
+    };
     use std::{cell::RefCell, ffi::CStr, io, ptr::NonNull, sync::OnceLock};
-    use tauri::{AppHandle, Manager};
+    use tauri::{AppHandle, Emitter, Manager};
 
     struct EscapeMonitor(Retained<AnyObject>);
 
@@ -35,17 +37,58 @@ pub mod macos {
         }
     }
 
-    fn install_fullscreen_monitor(window: &NSWindow) -> io::Result<()> {
+    #[derive(Clone, Debug, PartialEq, serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct NativeEscapeEvent {
+        kind: &'static str,
+        repeat: bool,
+        shift_key: bool,
+        ctrl_key: bool,
+        alt_key: bool,
+        meta_key: bool,
+    }
+
+    fn escape_payload(event: &NSEvent) -> NativeEscapeEvent {
+        let modifiers = event.modifierFlags();
+        NativeEscapeEvent {
+            kind: if event.r#type() == NSEventType::KeyUp {
+                "keyup"
+            } else {
+                "keydown"
+            },
+            repeat: event.isARepeat(),
+            shift_key: modifiers.contains(NSEventModifierFlags::Shift),
+            ctrl_key: modifiers.contains(NSEventModifierFlags::Control),
+            alt_key: modifiers.contains(NSEventModifierFlags::Option),
+            meta_key: modifiers.contains(NSEventModifierFlags::Command),
+        }
+    }
+
+    fn install_fullscreen_monitor(
+        window: &NSWindow,
+        webview: tauri::WebviewWindow,
+    ) -> io::Result<()> {
         uninstall();
         let window = unsafe { Retained::retain(window as *const NSWindow as *mut NSWindow) }
             .ok_or_else(|| io::Error::other("could not retain main window"))?;
         let block = RcBlock::new(move |event: NonNull<NSEvent>| {
             let mtm = MainThreadMarker::new().expect("AppKit events run on the main thread");
+            let target = unsafe { event.as_ref() }.window(mtm);
             let fullscreen = window.styleMask().contains(NSWindowStyleMask::FullScreen)
-                || unsafe { event.as_ref() }.window(mtm).is_some_and(|target| {
+                || target.as_ref().is_some_and(|target| {
                     target.styleMask().contains(NSWindowStyleMask::FullScreen)
                 });
-            filter_fullscreen_escape(event, fullscreen)
+            let filtered = filter_fullscreen_escape(event, fullscreen);
+            let main_target = target
+                .as_ref()
+                .is_none_or(|target| std::ptr::eq(&**target, &*window));
+            if filtered.is_null() && main_target {
+                let payload = escape_payload(unsafe { event.as_ref() });
+                if let Err(error) = webview.emit("terax:fullscreen-escape", payload) {
+                    log::error!("could not forward fullscreen Escape: {error}");
+                }
+            }
+            filtered
         });
         // Returning nil prevents both AppKit and WebKit from acting on fullscreen Escape.
         let token = unsafe {
@@ -85,17 +128,7 @@ pub mod macos {
             return false;
         }
         let style: NSWindowStyleMask = unsafe { msg_send![window, styleMask] };
-        if style.contains(NSWindowStyleMask::FullScreen) {
-            return true;
-        }
-        // Preserve application Escape outside fullscreen.
-        let responder: Option<Retained<AnyObject>> = unsafe { msg_send![window, firstResponder] };
-        if let Some(responder) = responder {
-            if !std::ptr::eq(&*responder, window) {
-                let _: () = unsafe { msg_send![&responder, keyDown: event] };
-            }
-        }
-        true
+        style.contains(NSWindowStyleMask::FullScreen)
     }
 
     extern "C-unwind" fn perform_key_equivalent(
@@ -117,7 +150,7 @@ pub mod macos {
     }
 
     extern "C-unwind" fn key_down(window: &AnyObject, selector: Sel, event: &NSEvent) {
-        if is_escape_key_down(event) {
+        if handle_escape(window, event) {
             return;
         }
         unsafe { (WINDOW_KEY_METHODS.get().unwrap().key_down)(window, selector, event) };
@@ -216,7 +249,7 @@ pub mod macos {
                 io::Error::other("could not install native Escape fullscreen guard").into(),
             );
         }
-        install_fullscreen_monitor(unsafe { &*pointer.cast::<NSWindow>() })?;
+        install_fullscreen_monitor(unsafe { &*pointer.cast::<NSWindow>() }, window)?;
         Ok(())
     }
 
@@ -226,16 +259,13 @@ pub mod macos {
         use objc2::{msg_send, rc::Retained, runtime::ClassBuilder, ClassType};
         use objc2_app_kit::NSEventModifierFlags;
         use objc2_foundation::{NSObject, NSPoint, NSString};
-        use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
         static FULLSCREEN: AtomicBool = AtomicBool::new(false);
         static CANCELS: AtomicUsize = AtomicUsize::new(0);
         static EQUIVALENTS: AtomicUsize = AtomicUsize::new(0);
         static WINDOW_KEYS: AtomicUsize = AtomicUsize::new(0);
-        static VIEW_KEYS: AtomicUsize = AtomicUsize::new(0);
         static WINDOW_EVENTS: AtomicUsize = AtomicUsize::new(0);
-        static RESPONDER: AtomicPtr<AnyObject> = AtomicPtr::new(std::ptr::null_mut());
-        static WINDOW: AtomicPtr<AnyObject> = AtomicPtr::new(std::ptr::null_mut());
 
         extern "C-unwind" fn parent_equivalent(_: &AnyObject, _: Sel, _: &NSEvent) -> Bool {
             EQUIVALENTS.fetch_add(1, Ordering::Relaxed);
@@ -255,19 +285,6 @@ pub mod macos {
                 NSWindowStyleMask::FullScreen
             } else {
                 NSWindowStyleMask::empty()
-            }
-        }
-
-        extern "C-unwind" fn first_responder(_: &AnyObject, _: Sel) -> *mut AnyObject {
-            RESPONDER.load(Ordering::Relaxed)
-        }
-
-        extern "C-unwind" fn view_key_down(_: &AnyObject, _: Sel, event: &NSEvent) {
-            VIEW_KEYS.fetch_add(1, Ordering::Relaxed);
-            let window = WINDOW.load(Ordering::Relaxed);
-            unsafe {
-                let _: () = msg_send![window, keyDown: event];
-                let _: () = msg_send![window, cancelOperation: std::ptr::null_mut::<AnyObject>()];
             }
         }
 
@@ -307,6 +324,32 @@ pub mod macos {
                             kind, NSPoint::ZERO, flags, 0.0, 0, None, &text, &text, repeat, 0x35,
                         ).unwrap();
                         let pointer = NonNull::from(&*escape);
+                        let payload = escape_payload(&escape);
+                        assert_eq!(
+                            payload.kind,
+                            if kind == NSEventType::KeyUp {
+                                "keyup"
+                            } else {
+                                "keydown"
+                            }
+                        );
+                        assert_eq!(payload.repeat, repeat);
+                        assert_eq!(
+                            payload.shift_key,
+                            flags.contains(NSEventModifierFlags::Shift)
+                        );
+                        assert_eq!(
+                            payload.ctrl_key,
+                            flags.contains(NSEventModifierFlags::Control)
+                        );
+                        assert_eq!(
+                            payload.alt_key,
+                            flags.contains(NSEventModifierFlags::Option)
+                        );
+                        assert_eq!(
+                            payload.meta_key,
+                            flags.contains(NSEventModifierFlags::Command)
+                        );
                         assert!(filter_fullscreen_escape(pointer, true).is_null());
                         assert_eq!(filter_fullscreen_escape(pointer, false), pointer.as_ptr());
                     }
@@ -318,7 +361,7 @@ pub mod macos {
         }
 
         #[test]
-        fn escape_bypasses_window_defaults_for_every_focus_target() {
+        fn window_guard_blocks_fullscreen_defaults_and_preserves_windowed_dispatch() {
             let mut parent =
                 ClassBuilder::new(c"TeraxEscapeTestParent", NSObject::class()).unwrap();
             unsafe {
@@ -342,10 +385,6 @@ pub mod macos {
                     sel!(styleMask),
                     style_mask as extern "C-unwind" fn(_, _) -> _,
                 );
-                parent.add_method(
-                    sel!(firstResponder),
-                    first_responder as extern "C-unwind" fn(_, _) -> _,
-                );
             }
             let parent = parent.register();
             let child = ClassBuilder::new(c"TeraxEscapeTestWindow", parent)
@@ -359,81 +398,39 @@ pub mod macos {
             assert!(find_window_class(observed, c"TeraxMissingWindowClass").is_none());
             assert!(prevent_escape_fullscreen_exit(target));
             assert!(install_key_methods(target));
-            let mut view_class =
-                ClassBuilder::new(c"TeraxEscapeTestView", NSObject::class()).unwrap();
-            unsafe {
-                view_class.add_method(
-                    sel!(keyDown:),
-                    view_key_down as extern "C-unwind" fn(_, _, _),
-                );
-            }
-            let view_class = view_class.register();
-            let sender = std::ptr::null_mut::<AnyObject>();
             unsafe {
                 let window: Retained<NSObject> = msg_send![observed, new];
-                let _: () = msg_send![&window, cancelOperation: sender];
-                assert_eq!(CANCELS.load(Ordering::Relaxed), 0);
-                let object: Retained<NSObject> = msg_send![parent, new];
-                let _: () = msg_send![&object, cancelOperation: sender];
-                assert_eq!(CANCELS.load(Ordering::Relaxed), 1);
-                CANCELS.store(0, Ordering::Relaxed);
-                let view: Retained<AnyObject> = msg_send![view_class, new];
-                let window_pointer = Retained::as_ptr(&window).cast::<AnyObject>().cast_mut();
-                WINDOW.store(window_pointer, Ordering::Relaxed);
-                RESPONDER.store(Retained::as_ptr(&view).cast_mut(), Ordering::Relaxed);
-                for flags in [
-                    NSEventModifierFlags::empty(),
-                    NSEventModifierFlags::Shift,
-                    NSEventModifierFlags::Control,
-                    NSEventModifierFlags::Option,
-                    NSEventModifierFlags::Command,
-                ] {
-                    for repeat in [false, true] {
-                        let escape = event(0x35, flags, repeat);
-                        let claimed: Bool = msg_send![&window, performKeyEquivalent: &*escape];
-                        assert!(claimed.as_bool());
-                    }
-                }
-                assert_eq!(VIEW_KEYS.load(Ordering::Relaxed), 10);
-                assert_eq!(EQUIVALENTS.load(Ordering::Relaxed), 0);
-                assert_eq!(WINDOW_KEYS.load(Ordering::Relaxed), 0);
-                assert_eq!(CANCELS.load(Ordering::Relaxed), 0);
-
                 let escape = event(0x35, NSEventModifierFlags::empty(), false);
+                FULLSCREEN.store(false, Ordering::Relaxed);
+                let claimed: Bool = msg_send![&window, performKeyEquivalent: &*escape];
+                assert!(!claimed.as_bool());
                 let _: () = msg_send![&window, sendEvent: &*escape];
-                assert_eq!(VIEW_KEYS.load(Ordering::Relaxed), 11);
-                assert_eq!(WINDOW_EVENTS.load(Ordering::Relaxed), 0);
+                let _: () = msg_send![&window, keyDown: &*escape];
+                assert_eq!(EQUIVALENTS.load(Ordering::Relaxed), 1);
+                assert_eq!(WINDOW_EVENTS.load(Ordering::Relaxed), 1);
+                assert_eq!(WINDOW_KEYS.load(Ordering::Relaxed), 1);
                 FULLSCREEN.store(true, Ordering::Relaxed);
                 let claimed: Bool = msg_send![&window, performKeyEquivalent: &*escape];
                 assert!(claimed.as_bool());
                 let _: () = msg_send![&window, sendEvent: &*escape];
-                assert_eq!(VIEW_KEYS.load(Ordering::Relaxed), 11);
+                let _: () = msg_send![&window, keyDown: &*escape];
+                let _: () = msg_send![&window, cancelOperation: std::ptr::null_mut::<AnyObject>()];
+                assert_eq!(EQUIVALENTS.load(Ordering::Relaxed), 1);
+                assert_eq!(WINDOW_EVENTS.load(Ordering::Relaxed), 1);
+                assert_eq!(WINDOW_KEYS.load(Ordering::Relaxed), 1);
                 assert_eq!(CANCELS.load(Ordering::Relaxed), 0);
-                FULLSCREEN.store(false, Ordering::Relaxed);
-                for responder in [window_pointer, std::ptr::null_mut()] {
-                    RESPONDER.store(responder, Ordering::Relaxed);
-                    let claimed: Bool = msg_send![&window, performKeyEquivalent: &*escape];
-                    assert!(claimed.as_bool());
-                    let _: () = msg_send![&window, keyDown: &*escape];
-                    let _: () = msg_send![&window, sendEvent: &*escape];
-                }
-                assert_eq!(VIEW_KEYS.load(Ordering::Relaxed), 11);
-                assert_eq!(WINDOW_EVENTS.load(Ordering::Relaxed), 0);
-                assert_eq!(WINDOW_KEYS.load(Ordering::Relaxed), 0);
-
                 let ordinary = event(0x00, NSEventModifierFlags::Command, false);
                 let claimed: Bool = msg_send![&window, performKeyEquivalent: &*ordinary];
                 assert!(!claimed.as_bool());
-                let _: () = msg_send![&window, keyDown: &*ordinary];
-                assert_eq!(EQUIVALENTS.load(Ordering::Relaxed), 1);
-                assert_eq!(WINDOW_KEYS.load(Ordering::Relaxed), 1);
                 let _: () = msg_send![&window, sendEvent: &*ordinary];
-                assert_eq!(WINDOW_EVENTS.load(Ordering::Relaxed), 1);
-                let claimed: Bool = msg_send![&object, performKeyEquivalent: &*escape];
-                assert!(!claimed.as_bool());
+                let _: () = msg_send![&window, keyDown: &*ordinary];
                 assert_eq!(EQUIVALENTS.load(Ordering::Relaxed), 2);
-                RESPONDER.store(std::ptr::null_mut(), Ordering::Relaxed);
-                WINDOW.store(std::ptr::null_mut(), Ordering::Relaxed);
+                assert_eq!(WINDOW_EVENTS.load(Ordering::Relaxed), 2);
+                assert_eq!(WINDOW_KEYS.load(Ordering::Relaxed), 2);
+                let object: Retained<NSObject> = msg_send![parent, new];
+                let _: () = msg_send![&object, cancelOperation: std::ptr::null_mut::<AnyObject>()];
+                assert_eq!(CANCELS.load(Ordering::Relaxed), 1);
+                FULLSCREEN.store(false, Ordering::Relaxed);
             }
         }
     }

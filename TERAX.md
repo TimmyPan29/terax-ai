@@ -74,12 +74,13 @@ and forward them to the focused
 main window's shortcut dispatcher, including when a PDF or preview iframe has
 focus. In native macOS fullscreen, an application-local NSEvent monitor consumes Escape
 keydown, repeats, modifier combinations and keyup before responder dispatch.
-Escape is disabled in fullscreen, including terminal and AI chat actions, so
-neither AppKit nor WebKit can use it to leave fullscreen. The monitor checks
-native window style on each event, independent of webview focus, and is removed
-on app exit. Outside fullscreen, the Tauri window subclass retains its Escape
-responder guards and normal application Escape handling. Other keys retain
-AppKit's original dispatch; installation resolves through macOS KVO subclasses.
+The consumed key is forwarded as a window-scoped event to the focused DOM input,
+with press, repeat, release and modifier metadata. The existing terminal encoder
+therefore sends Escape to Vim while AppKit never receives a fullscreen-exit key.
+Chat and editor Escape handlers receive the same focused DOM event. The monitor
+checks native window style independently of webview focus and is removed on exit.
+Outside fullscreen, the native window methods preserve original AppKit dispatch;
+installation resolves through macOS KVO subclasses.
 Duplicate native Close Window items have no accelerator. Tab and terminal
 pane closure retains the app's close guards; auxiliary windows close themselves.
 Windows main-window Ctrl-W and Ctrl-T are handled by WebView2 accelerator events,
