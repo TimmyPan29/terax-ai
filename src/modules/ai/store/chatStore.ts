@@ -1,3 +1,4 @@
+import { codexRequest } from "@/modules/ai/codex/client";
 import type { Chat, UIMessage } from "@ai-sdk/react";
 import { create } from "zustand";
 import {
@@ -5,25 +6,29 @@ import {
   endpointIdFromCompatModel,
   getModel,
   isCompatModelId,
-  providerNeedsKey,
   type ModelId,
   type ProviderId,
+  providerNeedsKey,
 } from "../config";
-import { useTodosStore } from "./todoStore";
 import type { AgentUsage } from "../lib/agent";
-import { EMPTY_PROVIDER_KEYS, type ProviderKeys, type CustomEndpointKeys } from "../lib/keyring";
+import {
+  type CustomEndpointKeys,
+  EMPTY_PROVIDER_KEYS,
+  type ProviderKeys,
+} from "../lib/keyring";
+import { pushRecentModel } from "../lib/modelPrefs";
 import {
   deleteSessionData,
   deriveTitle,
   loadAll,
   loadMessages,
   newSessionId,
+  type SessionMeta,
   saveActiveId,
   saveMessages,
   saveSessionsList,
-  type SessionMeta,
 } from "../lib/sessions";
-import { pushRecentModel } from "../lib/modelPrefs";
+import { useTodosStore } from "./todoStore";
 
 export type Live = {
   getCwd: () => string | null;
@@ -87,10 +92,7 @@ export type PendingSelection = {
   source: "terminal" | "editor";
 };
 
-export type ApprovalResponder = (
-  approvalId: string,
-  approved: boolean,
-) => void;
+export type ApprovalResponder = (approvalId: string, approved: boolean) => void;
 
 type StoreState = {
   live: Live;
@@ -147,6 +149,11 @@ type StoreState = {
   switchSession: (id: string) => void;
   deleteSession: (id: string) => void;
   renameSession: (id: string, title: string) => void;
+  setCodexThread: (
+    id: string,
+    threadId: string,
+    contextImported: boolean,
+  ) => void;
   /** Persist messages of a session and bump its updatedAt + auto-title. */
   persistMessages: (id: string, messages: UIMessage[]) => void;
 };
@@ -266,7 +273,10 @@ export const useChatStore = create<StoreState>((set, get) => ({
     set((s) => ({
       panelOpen: true,
       focusSignal: s.focusSignal + 1,
-      pendingSelections: [...s.pendingSelections, { id, text: trimmed, source }],
+      pendingSelections: [
+        ...s.pendingSelections,
+        { id, text: trimmed, source },
+      ],
     }));
   },
   consumeSelections: () => {
@@ -353,6 +363,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
   },
 
   deleteSession: (id) => {
+    const deleted = get().sessions.find((s) => s.id === id);
     const remaining = get().sessions.filter((s) => s.id !== id);
     chats.get(id)?.stop();
     chats.delete(id);
@@ -364,6 +375,11 @@ export const useChatStore = create<StoreState>((set, get) => ({
     }
     void deleteSessionData(id);
     void useTodosStore.getState().clearSession(id);
+    if (deleted?.codexThreadId) {
+      void codexRequest("thread/archive", {
+        threadId: deleted.codexThreadId,
+      }).catch(() => {});
+    }
 
     if (remaining.length === 0) {
       const fresh: SessionMeta = {
@@ -388,6 +404,21 @@ export const useChatStore = create<StoreState>((set, get) => ({
   renameSession: (id, title) => {
     const next = get().sessions.map((s) =>
       s.id === id ? { ...s, title, updatedAt: Date.now() } : s,
+    );
+    set({ sessions: next });
+    void saveSessionsList(next);
+  },
+
+  setCodexThread: (id, threadId, contextImported) => {
+    const next = get().sessions.map((session) =>
+      session.id === id
+        ? {
+            ...session,
+            codexThreadId: threadId,
+            codexContextImported: contextImported,
+            updatedAt: Date.now(),
+          }
+        : session,
     );
     set({ sessions: next });
     void saveSessionsList(next);
@@ -428,7 +459,8 @@ export function getAgentMeta(): AgentMeta {
 }
 
 export function getActiveProviderKey(): string | null {
-  const { selectedModelId, apiKeys, customEndpointKeys } = useChatStore.getState();
+  const { selectedModelId, apiKeys, customEndpointKeys } =
+    useChatStore.getState();
   if (isCompatModelId(selectedModelId)) {
     const eid = endpointIdFromCompatModel(selectedModelId);
     return customEndpointKeys[eid] ?? null;

@@ -3,7 +3,7 @@ pub mod modules;
 #[cfg(target_os = "macos")]
 use modules::app_menu;
 use modules::{
-    agent, control, fs, git, history, lsp, net, pty, secrets, shell, vibrancy, workspace,
+    agent, codex, control, fs, git, history, lsp, net, pty, secrets, shell, vibrancy, workspace,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -263,6 +263,7 @@ pub fn run() {
         .manage(modules::window_presentation::WindowPresentationState::default())
         .manage(control_state)
         .manage(shell::ShellState::default())
+        .manage(codex::CodexState::default())
         .manage(secrets::SecretsState::default())
         .manage(fs::watch::FsWatchState::default())
         .manage(history::HistoryState::default())
@@ -355,6 +356,11 @@ pub fn run() {
             open_settings_window,
             agent::agent_enable_hooks,
             agent::agent_hooks_status,
+            codex::codex_status,
+            codex::codex_subscribe,
+            codex::codex_request,
+            codex::codex_respond,
+            codex::codex_stop,
             secrets::secrets_get,
             secrets::secrets_set,
             secrets::secrets_delete,

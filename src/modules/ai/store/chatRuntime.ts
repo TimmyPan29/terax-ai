@@ -1,15 +1,18 @@
+import {
+  createCodexTransport,
+  respondToCodexApproval,
+} from "@/modules/ai/codex/transport";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { Chat, type UIMessage } from "@ai-sdk/react";
 import {
   type ChatTransport,
   lastAssistantMessageIsCompleteWithApprovalResponses,
 } from "ai";
-import { getModel, providerNeedsKey, type ModelId } from "../config";
-import { usePreferencesStore } from "@/modules/settings/preferences";
+import { providerNeedsKey, resolveModel } from "../config";
 import { BUILTIN_AGENTS } from "../lib/agents";
-import { useAgentsStore } from "./agentsStore";
-import { usePlanStore } from "./planStore";
 import { createContextAwareTransport } from "../lib/transport";
 import type { ToolContext } from "../tools/tools";
+import { useAgentsStore } from "./agentsStore";
 import {
   chats,
   getActiveProviderKey,
@@ -17,6 +20,7 @@ import {
   touchChat,
   useChatStore,
 } from "./chatStore";
+import { usePlanStore } from "./planStore";
 
 function makeChat(sessionId: string): Chat<UIMessage> {
   const readCache = new Map<string, { size: number; hash: number }>();
@@ -37,7 +41,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     getSessionId: () => sessionId,
   };
 
-  const transport = createContextAwareTransport({
+  const standardTransport = createContextAwareTransport({
     getKeys: () => useChatStore.getState().apiKeys,
     toolContext,
     getModelId: () => useChatStore.getState().selectedModelId,
@@ -100,6 +104,72 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     },
   }) as unknown as ChatTransport<UIMessage>;
 
+  const codexTransport = createCodexTransport({
+    sessionId,
+    getSession: () => {
+      const session = useChatStore
+        .getState()
+        .sessions.find((candidate) => candidate.id === sessionId);
+      return {
+        threadId: session?.codexThreadId,
+        contextImported: session?.codexContextImported,
+      };
+    },
+    setThread: (threadId, contextImported) =>
+      useChatStore
+        .getState()
+        .setCodexThread(sessionId, threadId, contextImported),
+    getCwd: () => useChatStore.getState().live.getCwd(),
+    getWorkspaceRoot: () => useChatStore.getState().live.getWorkspaceRoot(),
+    getCustomInstructions: () =>
+      usePreferencesStore.getState().customInstructions,
+    getAgentPersona: () => {
+      const { activeId, customAgents } = useAgentsStore.getState();
+      const all = [...BUILTIN_AGENTS, ...customAgents];
+      const a = all.find((x) => x.id === activeId) ?? BUILTIN_AGENTS[0];
+      return { name: a.name, instructions: a.instructions };
+    },
+    onStep: (step) => {
+      useChatStore.getState().patchAgentMeta({ step });
+    },
+    onUsage: (usage) => {
+      const cur = useChatStore.getState().agentMeta.tokens;
+      useChatStore.getState().patchAgentMeta({
+        tokens: {
+          inputTokens: cur.inputTokens + usage.inputTokens,
+          outputTokens: cur.outputTokens + usage.outputTokens,
+          cachedInputTokens: cur.cachedInputTokens + usage.cachedInputTokens,
+        },
+        lastInputTokens: usage.lastInputTokens,
+        lastCachedTokens: usage.lastCachedTokens,
+      });
+    },
+  });
+
+  const isCodex = () => {
+    try {
+      const endpoints = usePreferencesStore.getState().customEndpoints;
+      const model = resolveModel(
+        useChatStore.getState().selectedModelId,
+        endpoints,
+      );
+      return model.provider === "openai-account";
+    } catch {
+      return false;
+    }
+  };
+
+  const transport: ChatTransport<UIMessage> = {
+    sendMessages: (options) =>
+      isCodex()
+        ? codexTransport.sendMessages(options)
+        : standardTransport.sendMessages(options),
+    reconnectToStream: (options) =>
+      isCodex()
+        ? codexTransport.reconnectToStream(options)
+        : standardTransport.reconnectToStream(options),
+  };
+
   const initialMessages = seedMessages.get(sessionId);
   seedMessages.delete(sessionId);
 
@@ -132,12 +202,16 @@ export async function sendMessage(text: string): Promise<boolean> {
   const state = useChatStore.getState();
   const sessionId = state.activeSessionId;
   if (!sessionId) return false;
-  if (
-    providerNeedsKey(getModel(state.selectedModelId as ModelId).provider) &&
-    !getActiveProviderKey()
-  )
+  let provider: ProviderId = "openai";
+  try {
+    const endpoints = usePreferencesStore.getState().customEndpoints;
+    provider = resolveModel(state.selectedModelId, endpoints).provider;
+  } catch {}
+  if (providerNeedsKey(provider) && !getActiveProviderKey())
     return false;
   const c = getOrCreateChat(sessionId);
   await c.sendMessage({ text });
   return true;
 }
+
+export { respondToCodexApproval };
