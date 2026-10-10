@@ -1,6 +1,6 @@
 [package]
 name = "terax"
-version = "0.9.38"
+version = "0.9.39"
 description = "Terax — an open-source AI-native terminal emulator"
 authors = ["crynta"]
 license = "Apache-2.0"
@@ -13,7 +13,7 @@ default-members = [".", "crates/terax-cli", "crates/terax-control-protocol"]
 resolver = "2"
 
 [workspace.package]
-version = "0.9.38"
+version = "0.9.39"
 edition = "2021"
 license = "Apache-2.0"
 
@@ -79,7 +79,7 @@ keyring = { version = "3.6", default-features = false, features = [
 ] }
 objc2 = "0.6"
 block2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWindow", "NSWorkspace"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWindow", "NSWorkspace", "NSEvent", "NSResponder", "NSGraphicsContext"] }
 objc2-foundation = { version = "0.3", features = ["NSString", "NSUserDefaults"] }
 window-vibrancy = "0.8"
 

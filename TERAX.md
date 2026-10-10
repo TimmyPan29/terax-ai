@@ -72,9 +72,11 @@ block-editor, and readline bindings, including when Kitty keyboard mode is activ
 The native New Terminal Tab and Close Tab or Pane menus own Cmd-T and Cmd-W
 and forward them to the focused
 main window's shortcut dispatcher, including when a PDF or preview iframe has
-focus. The macOS Tauri window subclass consumes native `cancelOperation:` so
-Escape keeps the window in fullscreen while WebView and terminal Escape handlers
-continue to work; installation resolves through macOS KVO subclasses.
+focus. The macOS Tauri window subclass claims Escape in `sendEvent:` and
+`performKeyEquivalent:` and delivers it once to the focused responder, bypassing
+NSWindow's fullscreen event and key-equivalent defaults. Its `keyDown:` and
+`cancelOperation:` fallbacks consume unhandled Escape, including when the window itself has focus. Other keys retain AppKit's
+original methods; installation resolves through macOS KVO subclasses.
 Duplicate native Close Window items have no accelerator. Tab and terminal
 pane closure retains the app's close guards; auxiliary windows close themselves.
 Windows main-window Ctrl-W and Ctrl-T are handled by WebView2 accelerator events,
