@@ -15,7 +15,8 @@ const pdfIframeClass =
 describe("EditorPane PDF preview layout", () => {
   it("uses a dedicated PDF branch", () => {
     expect(pdfBranch).not.toBe("");
-    expect(src).toMatch(/if \(isImage \|\| isVideo \|\| isAudio\)/);
+    expect(src).toMatch(/if \(isImage\)/);
+    expect(src).toContain("<ImagePreview");
     expect(src).not.toMatch(
       /if \(isImage \|\| isVideo \|\| isAudio \|\| isPdf\)/,
     );

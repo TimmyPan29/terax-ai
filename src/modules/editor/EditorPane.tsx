@@ -34,6 +34,7 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { ImagePreview } from "@/modules/editor/ImagePreview";
 import { SvgEditorLayout } from "@/modules/editor/SvgEditorLayout";
 import { MarkdownEditorLayout } from "./MarkdownEditorLayout";
 import {
@@ -671,24 +672,21 @@ export const EditorPane = memo(
         );
       }
 
-      if (isImage || isVideo || isAudio) {
+      if (isImage) {
+        const assetUrl = `${convertFileSrc(path)}?v=${reloadRevision}`;
+        return (
+          <ImagePreview
+            key={assetUrl}
+            src={assetUrl}
+            alt={path.split(/[\\/]/).pop() ?? path}
+          />
+        );
+      }
+
+      if (isVideo || isAudio) {
         const assetUrl = convertFileSrc(path);
         return (
           <div className="flex h-full min-h-0 flex-col items-center justify-center bg-background p-4 overflow-auto">
-            {isImage && (
-              <img
-                src={assetUrl}
-                loading="lazy"
-                decoding="async"
-                className="max-w-full max-h-full object-contain rounded-md border border-border shadow-sm"
-                style={{
-                  backgroundImage:
-                    "conic-gradient(var(--muted) 0.25turn, transparent 0.25turn 0.5turn, var(--muted) 0.5turn 0.75turn, transparent 0.75turn)",
-                  backgroundSize: "20px 20px",
-                }}
-                alt={path.split("/").pop()}
-              />
-            )}
             {isVideo && (
               // biome-ignore lint/a11y/useMediaCaption: local media preview opens arbitrary files with no caption track
               <video
