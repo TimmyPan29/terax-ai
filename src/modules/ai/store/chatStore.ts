@@ -147,6 +147,7 @@ type StoreState = {
   activeSessionId: string | null;
   hydrateSessions: () => Promise<void>;
   newSession: () => string;
+  newChat: () => void;
   switchSession: (id: string) => void;
   deleteSession: (id: string) => void;
   renameSession: (id: string, title: string) => void;
@@ -337,6 +338,17 @@ export const useChatStore = create<StoreState>((set, get) => ({
       activeSessionId: freshId,
       sessionsHydrated: true,
     });
+  },
+
+  newChat: () => {
+    get().newSession();
+    set((s) => ({
+      panelOpen: true,
+      mini: { open: true },
+      focusSignal: s.focusSignal + 1,
+      pendingPrefill: null,
+      pendingSelections: [],
+    }));
   },
 
   newSession: () => {

@@ -40,6 +40,7 @@ export type ShortcutId =
   | "view.zoomOut"
   | "view.zoomReset"
   | "view.zenMode"
+  | "ai.newChat"
   | "ai.toggle"
   | "ai.toggleMini"
   | "ai.askSelection"
@@ -268,6 +269,12 @@ export const SHORTCUTS: Shortcut[] = [
     defaultBindings: [{ [MOD_PROP]: true, key: "f" }],
   },
   {
+    id: "ai.newChat",
+    label: "New AI chat",
+    group: "AI",
+    defaultBindings: [{ [MOD_PROP]: true, key: "n" }],
+  },
+  {
     id: "ai.toggle",
     label: "Toggle AI agent",
     group: "AI",
@@ -423,7 +430,7 @@ function keyFromCode(code: string): string | null {
 export function matchBinding(
   e: KeyboardEvent,
   binding: KeyBinding,
-  id?: ShortcutId
+  id?: ShortcutId,
 ): boolean {
   const eventKey = e.key.toLowerCase();
   const bindingKey = binding.key.toLowerCase();

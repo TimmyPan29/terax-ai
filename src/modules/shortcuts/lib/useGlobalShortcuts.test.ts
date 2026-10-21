@@ -155,7 +155,7 @@ describe("native pane close", () => {
     state.native.get("terax:close-pane")?.();
     for (const done of resolve.values()) done(off);
     await Promise.resolve();
-    expect(off).toHaveBeenCalledTimes(2);
+    expect(off).toHaveBeenCalledTimes(3);
     expect(close).not.toHaveBeenCalled();
   });
 });
@@ -214,7 +214,7 @@ describe("native new terminal", () => {
     expect(create).toHaveBeenCalledOnce();
   });
 
-  it("removes both native listeners on unmount", async () => {
+  it("removes native listeners on unmount", async () => {
     const off = vi.fn();
     state.listen.mockImplementation((_event, callback) => {
       state.native.set(_event, callback);
@@ -226,8 +226,44 @@ describe("native new terminal", () => {
     cleanup = undefined;
     state.native.get("terax:new-terminal")?.();
     state.native.get("terax:close-pane")?.();
-    expect(off).toHaveBeenCalledTimes(2);
+    expect(off).toHaveBeenCalledTimes(3);
     expect(create).not.toHaveBeenCalled();
     expect(close).not.toHaveBeenCalled();
+  });
+});
+
+describe("new AI chat shortcut", () => {
+  function mountChat() {
+    const create = vi.fn();
+    // biome-ignore lint/correctness/useHookAtTopLevel: React hooks are mocked to exercise native and DOM dispatch.
+    useGlobalShortcuts({ "ai.newChat": create });
+    cleanup = state.effects[0]();
+    return create;
+  }
+  it("routes Cmd+N through the native menu once, including iframe focus", () => {
+    const create = mountChat();
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "n", metaKey: true }),
+    );
+    expect(create).not.toHaveBeenCalled();
+    state.native.get("terax:new-chat")?.();
+    expect(create).toHaveBeenCalledOnce();
+  });
+  it("honors a customized new-chat binding", () => {
+    state.shortcuts = { "ai.newChat": [{ meta: true, key: "o" }] };
+    const create = mountChat();
+    state.native.get("terax:new-chat")?.();
+    expect(create).not.toHaveBeenCalled();
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "o", metaKey: true }),
+    );
+    expect(create).toHaveBeenCalledOnce();
+    const repeat = new TestKeyboardEvent("keydown", {
+      key: "o",
+      metaKey: true,
+    });
+    repeat.repeat = true;
+    window.dispatchEvent(repeat);
+    expect(create).toHaveBeenCalledOnce();
   });
 });

@@ -10,6 +10,8 @@ const CLOSE_PANE_MENU_ID: &str = "terax.close-pane";
 const CLOSE_PANE_EVENT: &str = "terax:close-pane";
 const NEW_TERMINAL_MENU_ID: &str = "terax.new-terminal";
 const NEW_TERMINAL_EVENT: &str = "terax:new-terminal";
+const NEW_CHAT_MENU_ID: &str = "terax.new-chat";
+const NEW_CHAT_EVENT: &str = "terax:new-chat";
 const QUIT_ACCELERATOR: &str = "Command+Q";
 
 fn invalid_default_menu(message: &'static str) -> tauri::Error {
@@ -71,7 +73,15 @@ fn add_new_terminal<R: Runtime>(app: &AppHandle<R>, menu: &Menu<R>) -> tauri::Re
                 true,
                 Some("Command+T"),
             )?;
+            let new_chat = MenuItem::with_id(
+                app,
+                NEW_CHAT_MENU_ID,
+                "New AI Chat",
+                true,
+                Some("Command+N"),
+            )?;
             submenu.insert(&new_terminal, 0)?;
+            submenu.insert(&new_chat, 1)?;
             return Ok(());
         }
     }
@@ -117,11 +127,16 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 }
 
 pub fn handle_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
-    if event.id() == NEW_TERMINAL_MENU_ID {
+    if event.id() == NEW_TERMINAL_MENU_ID || event.id() == NEW_CHAT_MENU_ID {
+        let event_name = if event.id() == NEW_CHAT_MENU_ID {
+            NEW_CHAT_EVENT
+        } else {
+            NEW_TERMINAL_EVENT
+        };
         if let Some(main) = app.get_webview_window("main") {
             if main.is_focused().unwrap_or(false) {
-                if let Err(error) = main.emit_to(main.label(), NEW_TERMINAL_EVENT, ()) {
-                    log::error!("could not request new terminal tab: {error}");
+                if let Err(error) = main.emit_to(main.label(), event_name, ()) {
+                    log::error!("could not dispatch native creation shortcut: {error}");
                 }
             }
         }

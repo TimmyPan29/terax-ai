@@ -919,6 +919,16 @@ export default function App() {
         if (editor) editor.openSearch();
         else searchInlineRef.current?.focus();
       },
+      "ai.newChat": () => {
+        if (!hasComposer) {
+          void openSettingsWindow("models");
+          return;
+        }
+        useChatStore.getState().newChat();
+        window.dispatchEvent(
+          new CustomEvent(SET_BLOCK_INPUT_MODE_EVENT, { detail: "ai" }),
+        );
+      },
       "ai.toggle": togglePanelAndFocus,
       "ai.toggleMini": () => {
         if (!hasComposer) {

@@ -48,7 +48,8 @@ export function useGlobalShortcuts(
           (IS_WINDOWS && e.ctrlKey && !e.metaKey)) &&
         !e.altKey &&
         !e.shiftKey &&
-        ["w", "t"].includes(e.key.toLowerCase())
+        (["w", "t"].includes(e.key.toLowerCase()) ||
+          (IS_MAC && e.key.toLowerCase() === "n"))
       )
         return;
       onKey(e);
@@ -59,6 +60,7 @@ export function useGlobalShortcuts(
       for (const [event, key, code] of [
         ["terax:close-pane", "w", "KeyW"],
         ["terax:new-terminal", "t", "KeyT"],
+        ...(IS_MAC ? [["terax:new-chat", "n", "KeyN"] as const] : []),
       ] as const) {
         void getCurrentWindow()
           .listen(event, () => {

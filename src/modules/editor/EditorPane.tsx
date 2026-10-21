@@ -34,6 +34,7 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { SvgEditorLayout } from "@/modules/editor/SvgEditorLayout";
 import { MarkdownEditorLayout } from "./MarkdownEditorLayout";
 import {
   inlineCompletion,
@@ -145,14 +146,15 @@ export const EditorPane = memo(
     } | null>(null);
     const previewDocumentRef = useRef(doc);
     previewDocumentRef.current = doc;
-    const isMarkdown = markdownView !== undefined;
+    const hasLivePreview =
+      markdownView !== undefined || path.toLowerCase().endsWith(".svg");
     const handleChange = useCallback(
       (content: string) => {
         onChange(content);
-        if (isMarkdown)
+        if (hasLivePreview)
           setPreviewBuffer({ document: previewDocumentRef.current, content });
       },
-      [onChange, isMarkdown],
+      [onChange, hasLivePreview],
     );
     const reloadRef = useRef(reload);
     reloadRef.current = reload;
@@ -747,6 +749,21 @@ export const EditorPane = memo(
         />
       </div>
     );
+    if (path.toLowerCase().endsWith(".svg")) {
+      return (
+        <SvgEditorLayout
+          content={
+            previewBuffer?.document === doc
+              ? previewBuffer.content
+              : doc.content
+          }
+          path={path}
+          visible={visible}
+        >
+          {editor}
+        </SvgEditorLayout>
+      );
+    }
     return markdownView === undefined ? (
       editor
     ) : (
