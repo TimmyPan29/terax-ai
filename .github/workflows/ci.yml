@@ -72,8 +72,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Terminal models, input, blocks, transport, and renderer lifecycle
-        run: pnpm exec vitest run src/modules/terminal
+      - name: Terminal lifecycle and image preview platform invariants
+        run: pnpm exec vitest run src/modules/terminal src/modules/editor/assetPolicy.test.ts src/modules/editor/lib/imageViewport.test.ts
 
   rust:
     runs-on: ubuntu-22.04
