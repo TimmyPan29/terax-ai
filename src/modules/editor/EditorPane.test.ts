@@ -1,49 +1,37 @@
 import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(path.join(here, "EditorPane.tsx"), "utf8");
-const pdfBranch =
-  src.match(/if \(isPdf\) \{([\s\S]*?)\n {6}\}\n\n {6}if \(isImage/)?.[1] ?? "";
-const pdfContainerClass =
-  pdfBranch.match(/<div className="([^"]+)">/)?.[1] ?? "";
-const pdfIframeClass =
-  pdfBranch.match(/<iframe[\s\S]*?className="([^"]+)"/)?.[1] ?? "";
+const source = readFileSync(
+  new URL("./EditorPane.tsx", import.meta.url),
+  "utf8",
+);
 
-describe("EditorPane PDF preview layout", () => {
-  it("uses a dedicated PDF branch", () => {
-    expect(pdfBranch).not.toBe("");
-    expect(src).toMatch(/if \(isImage\)/);
-    expect(src).toContain("<ImagePreview");
-    expect(src).not.toMatch(
-      /if \(isImage \|\| isVideo \|\| isAudio \|\| isPdf\)/,
+describe("PDF preview integration", () => {
+  it("loads the searchable PDF viewer only when required", () => {
+    expect(source).toContain(
+      'lazy(() => import("@/modules/editor/pdf/PdfPane"))',
+    );
+    expect(source).toContain("<PdfPane");
+    expect(source).not.toContain("<iframe");
+  });
+  it("routes PDF text and binary files to the same viewer", () => {
+    expect(source.indexOf("<PdfPane")).toBeLessThan(
+      source.indexOf('doc.status === "binary" || doc.status === "toolarge"'),
     );
   });
-
-  it("fills the pane without centered media padding or scrolling", () => {
-    expect(pdfContainerClass).toContain("zoom-exempt");
-    expect(pdfContainerClass).toContain("h-full");
-    expect(pdfContainerClass).toContain("w-full");
-    expect(pdfContainerClass).toContain("min-w-0");
-    expect(pdfContainerClass).toContain("overflow-hidden");
-    expect(pdfContainerClass).not.toMatch(
-      /(?:items-center|justify-center|overflow-auto|p-4)/,
+  it("forwards the editor search handle to PDF search requests", () => {
+    const search = source.slice(
+      source.indexOf("openSearch: () => {"),
+      source.indexOf("focus: () => {"),
     );
+    expect(search).toContain('path.toLowerCase().endsWith(".pdf")');
+    expect(search).toContain("setPdfSearchRequest((value) => value + 1)");
+    expect(source).toContain("searchRequest={pdfSearchRequest}");
+    expect(search).toContain("openSearchPanel(view)");
   });
-
-  it("keeps the native PDF iframe inside the available width", () => {
-    expect(pdfIframeClass).toContain("block");
-    expect(pdfIframeClass).toContain("h-full");
-    expect(pdfIframeClass).toContain("w-full");
-    expect(pdfIframeClass).toContain("min-w-0");
-    expect(pdfIframeClass).toContain("border-0");
-  });
-
-  it("includes cache-busting and dynamic key on reload", () => {
-    expect(pdfBranch).toContain("reloadRevision");
-    expect(pdfBranch).toMatch(/key=\{`\$\{path\}#\$\{reloadRevision\}`\}/);
-    expect(pdfBranch).toMatch(/\?v=\$\{reloadRevision\}/);
+  it("retains reload and active-tab visibility boundaries", () => {
+    expect(source).toMatch(/\?v=\$\{reloadRevision\}/);
+    expect(source).toContain("key={assetUrl}");
+    expect(source).toContain("visible={visible}");
   });
 });

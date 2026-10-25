@@ -84,7 +84,7 @@ installation resolves through macOS KVO subclasses.
 Duplicate native Close Window items have no accelerator. Tab and terminal
 pane closure retains the app's close guards; auxiliary windows close themselves.
 Windows main-window Ctrl-W and Ctrl-T are handled by WebView2 accelerator events,
-including native PDF focus. Repeat keydowns are consumed once; actions are queued
+including embedded preview focus. Repeat keydowns are consumed once; actions are queued
 after the synchronous callback and delivered to the existing shortcut dispatcher.
 The block prompt retains an enabled terminal input proxy for native menus and
 routes editing keys, composed text and paste back to its command editor.
@@ -222,6 +222,7 @@ Single-window React app. Path alias `@/*` → `src/*`. Tabs are a tagged union (
 Each module is self-contained, exports a thin barrel via `index.ts`, and owns its hooks under `lib/`.
 
 - **terminal/** - `TerminalStack` keeps live leaves mounted. `useGhosttyTerminalSession` owns one persistent model and PTY per leaf; GPU/WebGL surfaces lease shared presentation resources independently. `terminalSessionApi.ts` exposes renderer-neutral product actions. OSC 7 paths and OSC 52 payloads are validated by pure parsers; Ghostty supplies OSC 133 events and native command anchors to the lazy block controller. WebGPU can fail over to WebGL without replacing the model, PTY, selection, search, or block history. Hidden models keep parsing through bounded PTY transport while presentation is released. There is no snapshot replay or second terminal parser. Theme colors come from the central theme engine.
+- **PDF search**: PDF tabs lazily load the legacy-compatible PDF.js engine and worker, with local CMaps, fonts, WASM and their license notices. Cmd/Ctrl-F routes the editor search handle to the PDF find bar; Enter/Shift-Enter navigate highlighted matches across pages, with case and whole-word options. Hidden PDF tabs abort loading/rendering and destroy their worker; page and query state remain in React. Embedded PDF scripts and annotation editing are disabled. The startup and non-PDF size budgets remain unchanged; the lazy PDF code and worker have a separate 650 kB gzip budget. Verification details: `docs/architecture/pdf-search.md`.
 - **Windows asset policy**: Local images and media require `http://asset.localhost` in `img-src` and `media-src`, matching Tauri's default Windows protocol scheme. Keep `asset:`, HTTPS asset URLs, and Blob previews allowed.
 - **Image preview**: SVG and raster images share zoom controls (Fit, 100%, zoom in/out). Scaled dimensions create real scrollable bounds on both axes; the toolbar stays visible and zoom preserves the viewport center.
 - **SVG preview**: SVG editor tabs default to Rendered with a Source toggle. The image renderer uses a typed Blob URL, never inline markup, and revokes it when content changes or the preview hides. Source stays mounted to retain edits and undo history.

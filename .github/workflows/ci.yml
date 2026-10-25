@@ -72,8 +72,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Terminal lifecycle and image preview platform invariants
-        run: pnpm exec vitest run src/modules/terminal src/modules/editor/assetPolicy.test.ts src/modules/editor/lib/imageViewport.test.ts
+      - name: Terminal lifecycle and image/PDF preview platform invariants
+        run: pnpm exec vitest run src/modules/terminal src/modules/editor/assetPolicy.test.ts src/modules/editor/lib/imageViewport.test.ts src/modules/editor/pdf src/modules/editor/EditorPane.test.ts
 
   rust:
     runs-on: ubuntu-22.04

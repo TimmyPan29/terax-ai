@@ -17,13 +17,13 @@ import {
 import { Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { vim } from "@replit/codemirror-vim";
-import { LinkSquare02Icon, Refresh01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import {
   forwardRef,
+  lazy,
+  Suspense,
   memo,
   useCallback,
   useEffect,
@@ -65,6 +65,8 @@ import { type LanguageResult, resolveLanguage } from "./lib/languageResolver";
 import { FORCE_READ_LIMIT, useDocument } from "./lib/useDocument";
 import { useEditorThemeExt } from "./lib/useEditorThemeExt";
 import { initVimGlobals, vimHandlersExtension } from "./lib/vim";
+
+const PdfPane = lazy(() => import("@/modules/editor/pdf/PdfPane"));
 
 initVimGlobals();
 
@@ -141,6 +143,7 @@ export const EditorPane = memo(
         path,
         onDirtyChange,
       });
+    const [pdfSearchRequest, setPdfSearchRequest] = useState(0);
     const [previewBuffer, setPreviewBuffer] = useState<{
       document: typeof doc;
       content: string;
@@ -547,6 +550,10 @@ export const EditorPane = memo(
           });
         },
         openSearch: () => {
+          if (path.toLowerCase().endsWith(".pdf")) {
+            setPdfSearchRequest((value) => value + 1);
+            return;
+          }
           const view = cmRef.current?.view;
           if (view) openSearchPanel(view);
         },
@@ -610,6 +617,30 @@ export const EditorPane = memo(
         </div>
       );
     }
+    if (path.toLowerCase().endsWith(".pdf")) {
+      const assetUrl = `${convertFileSrc(path)}?v=${reloadRevision}`;
+      return (
+        <Suspense
+          fallback={
+            <p className="p-4 text-xs text-muted-foreground">
+              Loading PDF viewer…
+            </p>
+          }
+        >
+          <PdfPane
+            key={assetUrl}
+            url={assetUrl}
+            visible={visible}
+            searchRequest={pdfSearchRequest}
+            onReload={() => {
+              setReloadRevision((r) => r + 1);
+              reloadRef.current();
+            }}
+            onReveal={() => void revealItemInDir(path).catch(console.error)}
+          />
+        </Suspense>
+      );
+    }
     if (doc.status === "binary" || doc.status === "toolarge") {
       const ext = path.split(".").pop()?.toLowerCase() ?? "";
       const isImage = [
@@ -623,54 +654,6 @@ export const EditorPane = memo(
       ].includes(ext);
       const isVideo = ["mp4", "webm", "ogg", "mov"].includes(ext);
       const isAudio = ["mp3", "wav", "flac", "aac", "m4a"].includes(ext);
-      const isPdf = ext === "pdf";
-
-      if (isPdf) {
-        const assetUrl = `${convertFileSrc(path)}?v=${reloadRevision}`;
-        return (
-          <div className="zoom-exempt relative h-full min-h-0 w-full min-w-0 overflow-hidden bg-background">
-            <iframe
-              key={`${path}#${reloadRevision}`}
-              src={assetUrl}
-              className="block h-full w-full min-w-0 border-0"
-              title={path.split("/").pop()}
-            />
-            <div className="absolute top-2.5 right-3 z-10 flex items-center gap-1 rounded-md border border-border/60 bg-background/80 p-1 opacity-60 shadow-sm backdrop-blur-sm transition-opacity hover:opacity-100">
-              <button
-                type="button"
-                title="Reload PDF"
-                aria-label="Reload PDF"
-                onClick={() => {
-                  setReloadRevision((r) => r + 1);
-                  reloadRef.current();
-                }}
-                className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-              >
-                <HugeiconsIcon
-                  icon={Refresh01Icon}
-                  size={14}
-                  strokeWidth={1.75}
-                />
-              </button>
-              <button
-                type="button"
-                title="Open in system viewer"
-                aria-label="Open in system viewer"
-                onClick={() =>
-                  void openUrl(convertFileSrc(path)).catch(console.error)
-                }
-                className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-              >
-                <HugeiconsIcon
-                  icon={LinkSquare02Icon}
-                  size={14}
-                  strokeWidth={1.75}
-                />
-              </button>
-            </div>
-          </div>
-        );
-      }
 
       if (isImage) {
         const assetUrl = `${convertFileSrc(path)}?v=${reloadRevision}`;

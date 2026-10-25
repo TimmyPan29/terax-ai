@@ -13,16 +13,31 @@
   {
     "name": "total client JS",
     "path": [
-      "dist/assets/*.js"
+      "dist/assets/*.js",
+      "dist/assets/*.mjs"
+    ],
+    "limit": "3100 KB",
+    "gzip": true
+  },
+  {
+    "name": "client JS excluding on-demand PDF",
+    "path": [
+      "dist/assets/*.js",
+      "!dist/assets/PdfPane-*.js",
+      "!dist/assets/pdfSession-*.js",
+      "!dist/assets/pdf_viewer-*.js"
     ],
     "limit": "2400 KB",
     "gzip": true
   },
   {
-    "name": "client JS excluding Mermaid diagrams",
+    "name": "client JS excluding on-demand Mermaid and PDF",
     "path": [
       "dist/assets/*.js",
-      "!dist/assets/markdown-mermaid-*.js"
+      "!dist/assets/markdown-mermaid-*.js",
+      "!dist/assets/PdfPane-*.js",
+      "!dist/assets/pdfSession-*.js",
+      "!dist/assets/pdf_viewer-*.js"
     ],
     "limit": "1550 KB",
     "gzip": true
@@ -60,6 +75,17 @@
       "dist/assets/ghostty-vt-*.wasm"
     ],
     "limit": "450 KB",
+    "gzip": true
+  },
+  {
+    "name": "PDF viewer JS and worker (loaded on demand)",
+    "path": [
+      "dist/assets/PdfPane-*.js",
+      "dist/assets/pdfSession-*.js",
+      "dist/assets/pdf_viewer-*.js",
+      "dist/assets/pdf.worker.min-*.mjs"
+    ],
+    "limit": "650 KB",
     "gzip": true
   }
 ]

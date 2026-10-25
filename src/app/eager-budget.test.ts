@@ -12,6 +12,7 @@ const HEAVY = [
   "ai",
   "streamdown",
   "@codemirror",
+  "pdfjs-dist",
   "@uiw",
   "motion",
   "@xterm",
