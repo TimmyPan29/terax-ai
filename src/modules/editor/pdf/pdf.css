@@ -1,0 +1,13 @@
+.terax-pdf .pdfViewer {
+  --page-margin: 12px auto;
+  --page-border: 0;
+}
+.terax-pdf .pdfViewer .page {
+  background: white;
+}
+.terax-pdf .textLayer .highlight {
+  background: rgb(250 204 21 / 45%);
+}
+.terax-pdf .textLayer .highlight.selected {
+  background: rgb(249 115 22 / 70%);
+}

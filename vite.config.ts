@@ -4,6 +4,7 @@ import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import path from "node:path";
 import { defineConfig, type PluginOption, type UserConfig } from "vite";
 import Inspect from "vite-plugin-inspect";
+import { pdfAssets } from "./scripts/pdfAssets.ts";
 
 const host = process.env.TAURI_DEV_HOST;
 const rootDir = import.meta.dirname;
@@ -23,6 +24,7 @@ export default defineConfig(async ({ mode }): Promise<UserConfig> => ({
     }),
     react(),
     tailwindcss(),
+    pdfAssets(),
     // Module-graph inspector at /__inspect (who-imports-what, per-plugin
     // transforms). Opt-in via `pnpm dev:inspect`, never in a production build.
     ...(mode === "development" && inspectGraph

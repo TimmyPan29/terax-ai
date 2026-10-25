@@ -15,6 +15,15 @@ const directives = new Map<string, string[]>(
 );
 
 describe("local image and media asset policy", () => {
+  it("allows PDF fetches from each platform asset protocol", () => {
+    expect(directives.get("connect-src")).toEqual(
+      expect.arrayContaining([
+        "asset:",
+        "http://asset.localhost",
+        "https://asset.localhost",
+      ]),
+    );
+  });
   it.each(["img-src", "media-src"])(
     "%s permits the Windows HTTP asset origin and the other platform schemes",
     (directive) => {
