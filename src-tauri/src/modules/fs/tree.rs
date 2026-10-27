@@ -131,7 +131,20 @@ fn natural_cmp(a: &str, b: &str) -> Ordering {
 /// opts into the per-entry `gitignored` flag; off by default so non-explorer
 /// callers pay nothing.
 #[tauri::command]
-pub fn fs_read_dir(
+pub async fn fs_read_dir(
+    path: String,
+    show_hidden: bool,
+    git_decorations: Option<bool>,
+    workspace: Option<WorkspaceEnv>,
+) -> Result<Vec<DirEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        read_dir_blocking(path, show_hidden, git_decorations, workspace)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn read_dir_blocking(
     path: String,
     show_hidden: bool,
     git_decorations: Option<bool>,
@@ -158,6 +171,10 @@ pub fn fs_read_dir(
         .filter_map(|entry| {
             let name = entry.file_name().into_string().ok()?;
 
+            if name.starts_with('.') && !show_hidden {
+                return None;
+            }
+
             // `metadata()` follows symlinks → it returns the target's stat in
             // one syscall (file_type + size + mtime all derived from it). We
             // fall back to `symlink_metadata` for broken symlinks so we don't
@@ -175,10 +192,6 @@ pub fn fs_read_dir(
             } else {
                 EntryKind::File
             };
-
-            if name.starts_with('.') && !show_hidden {
-                return None;
-            }
 
             let size = meta.len();
             let mtime = meta
@@ -249,8 +262,29 @@ pub fn list_subdirs(
 
 #[cfg(test)]
 mod tests {
-    use super::natural_cmp;
+    use super::{natural_cmp, read_dir_blocking, EntryKind};
     use std::cmp::Ordering;
+
+    #[test]
+    fn directory_listing_preserves_visibility_sort_and_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("folder")).unwrap();
+        std::fs::write(dir.path().join("file10"), b"123").unwrap();
+        std::fs::write(dir.path().join("file2"), b"12").unwrap();
+        std::fs::write(dir.path().join(".hidden"), b"hidden").unwrap();
+        let path = dir.path().to_string_lossy().into_owned();
+        let entries = read_dir_blocking(path.clone(), false, None, None).unwrap();
+        assert_eq!(
+            entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            vec!["folder", "file2", "file10"]
+        );
+        assert!(matches!(entries[0].kind, EntryKind::Dir));
+        assert_eq!(entries[1].size, 2);
+        assert!(read_dir_blocking(path, true, None, None)
+            .unwrap()
+            .iter()
+            .any(|e| e.name == ".hidden"));
+    }
 
     fn sorted(mut v: Vec<&str>) -> Vec<&str> {
         v.sort_by(|a, b| natural_cmp(a, b));

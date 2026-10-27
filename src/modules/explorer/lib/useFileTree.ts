@@ -76,7 +76,7 @@ function recallExpansion(root: string): string[] {
 }
 
 function isUnder(key: string, root: string): boolean {
-  return key === root || key.startsWith(`${root}/`);
+  return key === root || key.startsWith(root.endsWith("/") ? root : `${root}/`);
 }
 
 // mtime/size are ignored on purpose: the tree never renders them, so a watcher
@@ -120,6 +120,8 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   const optionsRef = useRef(options);
   const scopeKey = `${workspaceKey}\u0000${rootPath ?? ""}`;
   const scopeKeyRef = useRef(scopeKey);
+  const scopeGenerationRef = useRef(0);
+  const requestsRef = useRef(new Map<string, number>());
   const conflictPromptsRef = useRef<Map<string | number, () => void>>(
     new Map(),
   );
@@ -134,13 +136,18 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   }, [options]);
 
   useLayoutEffect(() => {
-    if (scopeKeyRef.current !== scopeKey) cancelConflictPrompts();
+    if (scopeKeyRef.current !== scopeKey) {
+      cancelConflictPrompts();
+      scopeGenerationRef.current++;
+      requestsRef.current.clear();
+    }
     scopeKeyRef.current = scopeKey;
   }, [scopeKey, cancelConflictPrompts]);
 
   useEffect(
     () => () => {
       scopeKeyRef.current = "";
+      scopeGenerationRef.current++;
       cancelConflictPrompts();
     },
     [cancelConflictPrompts],
@@ -174,6 +181,12 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   }, []);
 
   const fetchChildren = useCallback(async (path: string) => {
+    const generation = scopeGenerationRef.current;
+    const request = (requestsRef.current.get(path) ?? 0) + 1;
+    requestsRef.current.set(path, request);
+    const isCurrent = () =>
+      generation === scopeGenerationRef.current &&
+      requestsRef.current.get(path) === request;
     if (nodesRef.current[path]?.status !== "loaded") {
       setNodes((s) => ({ ...s, [path]: { status: "loading" } }));
     }
@@ -184,6 +197,8 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         gitDecorations: gitDecorationsRef.current,
         workspace: currentWorkspaceEnv(),
       });
+
+      if (!isCurrent()) return;
 
       const prev = nodesRef.current[path];
       if (prev?.status === "loaded" && sameDirListing(prev.entries, entries)) {
@@ -231,6 +246,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         watchRemove(toUnwatch);
       }
     } catch (e) {
+      if (!isCurrent()) return;
       setNodes((s) => ({
         ...s,
         [path]: { status: "error", message: String(e) },
@@ -274,7 +290,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         watchedRef.current.clear();
       }
     };
-  }, [rootPath, fetchChildren]);
+  }, [rootPath, workspaceKey, fetchChildren]);
 
   useEffect(() => {
     let alive = true;
@@ -301,7 +317,9 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   useEffect(() => {
     if (!rootPath) return;
     const loadedPaths = Object.entries(nodes)
-      .filter(([, state]) => state.status === "loaded")
+      .filter(([path, state]) =>
+        state.status === "loaded" && isUnder(path, rootPath),
+      )
       .map(([path]) => path);
     for (const path of loadedPaths) void fetchChildren(path);
     // Re-list loaded directories when visibility or git-decoration prefs change.
