@@ -27,12 +27,16 @@ import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { Compartment, EditorState, Prec } from "@codemirror/state";
 import {
   crosshairCursor,
+  Decoration,
+  type DecorationSet,
   drawSelection,
   EditorView,
   keymap,
   placeholder,
   rectangularSelection,
   tooltips,
+  ViewPlugin,
+  type ViewUpdate,
 } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 import { completionIcon } from "./completionIcons";
@@ -283,14 +287,151 @@ function highlightStyle(): HighlightStyle {
   const fg = c.foreground ?? "inherit";
   return HighlightStyle.define([
     { tag: t.keyword, color: c.magenta ?? fg },
-    { tag: t.string, color: c.green ?? fg },
+    { tag: [t.function(t.variableName), t.standard(t.variableName)], color: c.green ?? fg },
+    { tag: t.string, color: c.yellow ?? fg },
     { tag: t.comment, color: c.brightBlack ?? fg, fontStyle: "italic" },
     { tag: [t.number, t.bool, t.atom], color: c.yellow ?? fg },
-    { tag: t.standard(t.variableName), color: c.cyan ?? fg },
-    { tag: t.special(t.variableName), color: c.blue ?? fg },
+    { tag: [t.attributeName, t.propertyName], color: c.cyan ?? fg },
+    { tag: [t.special(t.variableName), t.definition(t.variableName)], color: c.blue ?? fg },
     { tag: t.variableName, color: fg },
     { tag: t.operator, color: c.brightBlack ?? fg },
   ]);
+}
+
+const PRECOMMAND_WORDS = new Set([
+  "sudo",
+  "command",
+  "builtin",
+  "exec",
+  "nohup",
+  "time",
+  "env",
+  "nice",
+  "xargs",
+]);
+const BUILTIN_COMMANDS = new Set([...SHELL_KEYWORDS, ...SHELL_COMMANDS]);
+const ENV_ASSIGN_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+const validCmdMark = Decoration.mark({ class: "cm-shell-cmd-valid" });
+const invalidCmdMark = Decoration.mark({ class: "cm-shell-cmd-invalid" });
+const flagMark = Decoration.mark({ class: "cm-shell-flag" });
+
+export function computeCommandHighlightRanges(
+  doc: string,
+  knownCommands: ReadonlySet<string>,
+): { from: number; to: number; kind: "valid" | "invalid" | "flag" }[] {
+  const out: { from: number; to: number; kind: "valid" | "invalid" | "flag" }[] = [];
+  let expectCommand = true;
+  let i = 0;
+  const n = doc.length;
+
+  while (i < n) {
+    const ch = doc[i];
+    if (ch === " " || ch === "\t") {
+      i++;
+      continue;
+    }
+    if (ch === "\n" || ch === ";" || ch === "|" || ch === "&" || ch === "(" || ch === ")" || ch === "{" || ch === "}") {
+      expectCommand = true;
+      i++;
+      continue;
+    }
+    if (ch === "#") {
+      while (i < n && doc[i] !== "\n") i++;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      i++;
+      while (i < n && doc[i] !== quote) {
+        if (doc[i] === "\\" && quote === '"') i++;
+        i++;
+      }
+      if (i < n) i++;
+      expectCommand = false;
+      continue;
+    }
+
+    const start = i;
+    while (
+      i < n &&
+      doc[i] !== " " &&
+      doc[i] !== "\t" &&
+      doc[i] !== "\n" &&
+      doc[i] !== ";" &&
+      doc[i] !== "|" &&
+      doc[i] !== "&" &&
+      doc[i] !== "(" &&
+      doc[i] !== ")" &&
+      doc[i] !== "{" &&
+      doc[i] !== "}" &&
+      doc[i] !== "'" &&
+      doc[i] !== '"'
+    ) {
+      if (doc[i] === "\\" && i + 1 < n) i++;
+      i++;
+    }
+    const word = doc.slice(start, i);
+    if (!word) continue;
+
+    if (expectCommand) {
+      if (ENV_ASSIGN_RE.test(word)) {
+        continue;
+      }
+      if (PRECOMMAND_WORDS.has(word)) {
+        out.push({ from: start, to: i, kind: "valid" });
+        continue;
+      }
+      const isPathLike = word.includes("/");
+      const isValid =
+        isPathLike || BUILTIN_COMMANDS.has(word) || knownCommands.has(word);
+      out.push({
+        from: start,
+        to: i,
+        kind: isValid ? "valid" : "invalid",
+      });
+      expectCommand = false;
+    } else if (word.startsWith("-") && word.length > 1) {
+      out.push({ from: start, to: i, kind: "flag" });
+    }
+  }
+
+  return out;
+}
+
+function commandHighlightPlugin(getCommands: () => string[]) {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = this.build(view);
+      }
+      update(update: ViewUpdate) {
+        if (update.docChanged || update.viewportChanged) {
+          this.decorations = this.build(update.view);
+        }
+      }
+      build(view: EditorView): DecorationSet {
+        const text = view.state.doc.toString();
+        if (!text) return Decoration.none;
+        const known = new Set(getCommands());
+        const ranges = computeCommandHighlightRanges(text, known);
+        if (ranges.length === 0) return Decoration.none;
+        return Decoration.set(
+          ranges.map((r) => {
+            const mark =
+              r.kind === "valid"
+                ? validCmdMark
+                : r.kind === "invalid"
+                  ? invalidCmdMark
+                  : flagMark;
+            return mark.range(r.from, r.to);
+          }),
+        );
+      }
+    },
+    { decorations: (v) => v.decorations },
+  );
 }
 
 function baseTheme(fontFamily: string, fontSize: number, fontWeight: string) {
@@ -325,6 +466,15 @@ function baseTheme(fontFamily: string, fontSize: number, fontWeight: string) {
       { backgroundColor: c.selectionBackground ?? "rgba(255,255,255,0.15)" },
     ".cm-placeholder": { color: "rgba(128,128,128,0.5)" },
     ".cm-ghost": { opacity: "0.4" },
+    ".cm-shell-cmd-valid, .cm-shell-cmd-valid > span": {
+      color: `${c.green ?? c.brightGreen ?? "inherit"} !important`,
+    },
+    ".cm-shell-cmd-invalid, .cm-shell-cmd-invalid > span": {
+      color: `${c.red ?? c.brightRed ?? "inherit"} !important`,
+    },
+    ".cm-shell-flag, .cm-shell-flag > span": {
+      color: `${c.cyan ?? c.brightCyan ?? "inherit"}`,
+    },
     ".cm-tooltip": {
       backgroundColor: "var(--popover)",
       color: "var(--popover-foreground)",
@@ -410,6 +560,7 @@ export function createShellEditor(opts: ShellEditorOptions): ShellEditorHandle {
       tooltips({ parent: document.body }),
       shellLanguage,
       highlightComp.of(syntaxHighlighting(highlightStyle())),
+      commandHighlightPlugin(opts.commandNames ?? (() => [])),
       autocompletion({
         override: [
           makeCompletionSource(

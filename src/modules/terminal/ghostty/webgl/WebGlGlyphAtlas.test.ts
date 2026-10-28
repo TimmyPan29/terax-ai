@@ -33,6 +33,17 @@ describe("hasIntrinsicColor", () => {
       false,
     );
   });
+
+  it("ignores semi-transparent LCD subpixel antialiasing fringes on monochrome text", () => {
+    expect(
+      hasIntrinsicColor(
+        new Uint8ClampedArray([
+          0, 23, 94, 39, 146, 207, 243, 198, 255, 255, 255, 255, 237, 212, 175,
+          208, 140, 61, 24, 75,
+        ]),
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("WebGlGlyphAtlas uploads", () => {
