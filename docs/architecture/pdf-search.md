@@ -47,3 +47,17 @@ Verification for v1.0.4:
 
 Reference fixture:
 https://github.com/mozilla/pdf.js/blob/master/test/pdfs/tracemonkey.pdf
+
+## Refresh and reference previews
+
+Each editor instance uses a unique asset cache key and increments its revision
+on file watch notifications or manual reload. This prevents reopening a PDF
+from reusing an earlier tab's cached bytes. The viewer retains its page and
+search state across reloads.
+
+Command-right-click on macOS, or Control-right-click on Windows and Linux,
+on a PDF internal link opens a scrollable preview of its destination. Named
+and explicit PDF destinations are resolved without navigating the main viewer.
+The preview is dismissed by Escape, its close button, or clicking outside it;
+its render task is cancelled on dismissal or document reload. External links
+and references without PDF link annotations are not resolved.
