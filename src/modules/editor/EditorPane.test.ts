@@ -30,8 +30,9 @@ describe("PDF preview integration", () => {
     expect(search).toContain("openSearchPanel(view)");
   });
   it("retains reload and active-tab visibility boundaries", () => {
-    expect(source).toMatch(/\?v=\$\{reloadRevision\}/);
-    expect(source).toContain("key={assetUrl}");
+    expect(source).toContain("crypto.randomUUID()");
+    expect(source).toContain("?v=${assetCacheKey}-${reloadRevision}");
+    expect(source).toContain("key={path}");
     expect(source).toContain("visible={visible}");
   });
 });

@@ -250,7 +250,7 @@ fn read_dir_orders_dirs_before_files_then_alpha() {
     fx.write("file10.txt", "");
     fx.write("file2.txt", "");
 
-    let entries = fs_read_dir(fx.root_str(), false, None, None).expect("read_dir");
+    let entries = tauri::async_runtime::block_on(fs_read_dir(fx.root_str(), false, None, None)).expect("read_dir");
     let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(
         names,
@@ -275,11 +275,11 @@ fn read_dir_hides_dotfiles_by_default() {
     fx.write(".secret", "");
     fx.write("visible.txt", "");
 
-    let hidden_off = fs_read_dir(fx.root_str(), false, None, None).expect("read_dir");
+    let hidden_off = tauri::async_runtime::block_on(fs_read_dir(fx.root_str(), false, None, None)).expect("read_dir");
     let names: Vec<&str> = hidden_off.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(names, vec!["visible.txt"]);
 
-    let hidden_on = fs_read_dir(fx.root_str(), true, None, None).expect("read_dir");
+    let hidden_on = tauri::async_runtime::block_on(fs_read_dir(fx.root_str(), true, None, None)).expect("read_dir");
     let names: Vec<&str> = hidden_on.iter().map(|e| e.name.as_str()).collect();
     assert!(names.contains(&".secret"));
 }
@@ -295,7 +295,7 @@ fn read_dir_flags_gitignored_entries_only_when_requested() {
     fx.write_file("ignored.txt", "");
     fx.write_file("build/out.o", "");
 
-    let entries = fs_read_dir(fx.repo_str(), false, Some(true), None).expect("read_dir");
+    let entries = tauri::async_runtime::block_on(fs_read_dir(fx.repo_str(), false, Some(true), None)).expect("read_dir");
     let flag = |name: &str| {
         entries
             .iter()
@@ -307,7 +307,7 @@ fn read_dir_flags_gitignored_entries_only_when_requested() {
     assert!(flag("ignored.txt"));
     assert!(flag("build"));
 
-    let plain = fs_read_dir(fx.repo_str(), false, None, None).expect("read_dir");
+    let plain = tauri::async_runtime::block_on(fs_read_dir(fx.repo_str(), false, None, None)).expect("read_dir");
     assert!(plain.iter().all(|e| !e.gitignored));
 }
 
@@ -317,7 +317,7 @@ fn read_dir_skips_gitignore_outside_a_repo() {
     fx.write(".gitignore", "ignored.txt\n");
     fx.write("ignored.txt", "");
     fx.write("kept.txt", "");
-    let entries = fs_read_dir(fx.root_str(), false, Some(true), None).expect("read_dir");
+    let entries = tauri::async_runtime::block_on(fs_read_dir(fx.root_str(), false, Some(true), None)).expect("read_dir");
     assert!(entries.iter().all(|e| !e.gitignored));
 }
 
@@ -326,7 +326,7 @@ fn read_dir_returns_size_for_files() {
     let fx = FsFixture::new();
     fx.write("known.txt", "abcdef");
 
-    let entries = fs_read_dir(fx.root_str(), false, None, None).expect("read_dir");
+    let entries = tauri::async_runtime::block_on(fs_read_dir(fx.root_str(), false, None, None)).expect("read_dir");
     let entry = entries.iter().find(|e| e.name == "known.txt").unwrap();
     assert_eq!(entry.size, 6);
     assert!(matches!(entry.kind, EntryKind::File));

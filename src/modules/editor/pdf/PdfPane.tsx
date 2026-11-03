@@ -20,6 +20,15 @@ export default function PdfPane({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const session = useRef<PdfSession | null>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const previewAbort = useRef<AbortController | null>(null);
+  const [preview, setPreview] = useState<{
+    x: number;
+    y: number;
+    page?: number;
+    error?: string;
+    rendered?: { canvas: HTMLCanvasElement; x: number; y: number };
+  } | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [pages, setPages] = useState(0);
@@ -45,6 +54,8 @@ export default function PdfPane({
     if (!visible || !container) return;
     const abort = new AbortController();
     const resumePage = lastPage.current;
+    previewAbort.current?.abort();
+    setPreview(null);
     setReady(false);
     setError("");
     setPassword(null);
@@ -86,6 +97,7 @@ export default function PdfPane({
       });
     return () => {
       abort.abort();
+      previewAbort.current?.abort();
       session.current = null;
       container.replaceChildren(
         Object.assign(document.createElement("div"), {
@@ -111,6 +123,87 @@ export default function PdfPane({
     if (ready && visible && searchOpen)
       session.current?.find({ query, caseSensitive, wholeWords });
   }, [query, caseSensitive, wholeWords, ready, visible, searchOpen]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !visible) return;
+    const close = () => {
+      previewAbort.current?.abort();
+      setPreview(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (!previewRef.current?.contains(event.target as Node)) close();
+    };
+    const onContextMenu = (event: MouseEvent) => {
+      const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+      if (!(isMac ? event.metaKey : event.ctrlKey)) return;
+      const anchor = (event.target as Element).closest<HTMLAnchorElement>(
+        ".linkAnnotation[data-internal-link] a[data-element-id]",
+      );
+      const pageElement = anchor?.closest<HTMLElement>(
+        ".page[data-page-number]",
+      );
+      const pageNumber = Number(pageElement?.dataset.pageNumber);
+      const id = anchor?.dataset.elementId;
+      if (!id || !pageNumber || !session.current) return;
+      event.preventDefault();
+      previewAbort.current?.abort();
+      const abort = new AbortController();
+      previewAbort.current = abort;
+      const bounds = container.getBoundingClientRect();
+      const x = Math.max(
+        0,
+        Math.min(
+          event.clientX - bounds.left,
+          bounds.width - Math.min(440, bounds.width),
+        ),
+      );
+      const y = Math.max(
+        0,
+        Math.min(
+          event.clientY - bounds.top,
+          bounds.height - Math.min(340, bounds.height),
+        ),
+      );
+      setPreview({ x, y });
+      void session.current
+        .renderReference(pageNumber, id, abort.signal)
+        .then((result) => {
+          if (abort.signal.aborted) return;
+          if (!result) {
+            setPreview({ x, y, error: "Reference destination unavailable" });
+            return;
+          }
+          setPreview({ x, y, page: result.page, rendered: result });
+        })
+        .catch(() => {
+          if (!abort.signal.aborted)
+            setPreview({ x, y, error: "Unable to load reference" });
+        });
+    };
+    container.addEventListener("contextmenu", onContextMenu);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      container.removeEventListener("contextmenu", onContextMenu);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [visible]);
+
+  useLayoutEffect(() => {
+    if (!preview?.rendered) return;
+    const scroll = previewRef.current?.querySelector<HTMLDivElement>(
+      "[data-preview-scroll]",
+    );
+    if (!scroll) return;
+    scroll.replaceChildren(preview.rendered.canvas);
+    scroll.scrollLeft = Math.max(0, preview.rendered.x - 30);
+    scroll.scrollTop = Math.max(0, preview.rendered.y - 30);
+  }, [preview]);
 
   const openSearch = () => {
     setSearchOpen(true);
@@ -286,6 +379,38 @@ export default function PdfPane({
         >
           <div className="pdfViewer" />
         </div>
+        {preview && (
+          <div
+            ref={previewRef}
+            role="dialog"
+            aria-label="Reference preview"
+            className="absolute z-20 flex max-h-full max-w-full flex-col overflow-hidden rounded border border-border bg-background shadow-xl"
+            style={{ left: preview.x, top: preview.y, width: 440, height: 340 }}
+          >
+            <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-1 text-xs">
+              <span>
+                {preview.page
+                  ? `Reference · page ${preview.page}`
+                  : preview.error || "Loading reference…"}
+              </span>
+              <button
+                type="button"
+                aria-label="Close reference preview"
+                className={button}
+                onClick={() => {
+                  previewAbort.current?.abort();
+                  setPreview(null);
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <div
+              data-preview-scroll
+              className="min-h-0 flex-1 overflow-auto bg-white"
+            />
+          </div>
+        )}
         {!ready && !error && !password && (
           <p
             role="status"
