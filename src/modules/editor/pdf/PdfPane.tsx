@@ -472,6 +472,36 @@ export default function PdfPane({
     setPreview(null);
     setFocusMode(true);
   };
+  const zoomControls = (
+    <>
+      <button
+        type="button"
+        className={button}
+        aria-label="Zoom out"
+        disabled={!ready}
+        onClick={() => session.current?.zoom(-1)}
+      >
+        −
+      </button>
+      <button
+        type="button"
+        className={button}
+        aria-label="Zoom in"
+        disabled={!ready}
+        onClick={() => session.current?.zoom(1)}
+      >
+        +
+      </button>
+      <button
+        type="button"
+        className={button}
+        disabled={!ready}
+        onClick={() => session.current?.fit()}
+      >
+        Fit width
+      </button>
+    </>
+  );
   const viewer = (
     <div
       className={`terax-pdf ${focusMode ? "" : "zoom-exempt"} flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background text-foreground`}
@@ -506,32 +536,7 @@ export default function PdfPane({
           >
             ›
           </button>
-          <button
-            type="button"
-            className={button}
-            aria-label="Zoom out"
-            disabled={!ready}
-            onClick={() => session.current?.zoom(-1)}
-          >
-            −
-          </button>
-          <button
-            type="button"
-            className={button}
-            aria-label="Zoom in"
-            disabled={!ready}
-            onClick={() => session.current?.zoom(1)}
-          >
-            +
-          </button>
-          <button
-            type="button"
-            className={button}
-            disabled={!ready}
-            onClick={() => session.current?.fit()}
-          >
-            Fit width
-          </button>
+          {zoomControls}
           <button type="button" className={button} onClick={onReload}>
             Reload
           </button>
@@ -644,13 +649,20 @@ export default function PdfPane({
           <div className="pdfViewer" />
         </div>
         {focusMode && (
-          <button
-            type="button"
-            className="absolute right-3 top-3 z-10 rounded border border-border bg-background px-2 py-1 text-xs text-foreground shadow-sm hover:bg-accent"
-            onClick={() => setFocusMode(false)}
+          <div
+            role="toolbar"
+            aria-label="PDF focus controls"
+            className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded border border-border bg-background p-1 text-foreground shadow-sm"
           >
-            Exit focus mode
-          </button>
+            {zoomControls}
+            <button
+              type="button"
+              className={button}
+              onClick={() => setFocusMode(false)}
+            >
+              Exit focus mode
+            </button>
+          </div>
         )}
         {preview && (
           <div
