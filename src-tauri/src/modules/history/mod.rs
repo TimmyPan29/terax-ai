@@ -71,19 +71,40 @@ fn fish_histfile(home: Option<&PathBuf>) -> Option<PathBuf> {
 fn scan_path() -> Vec<String> {
     use std::collections::HashSet;
     let mut set: HashSet<String> = HashSet::new();
-    if let Ok(path) = std::env::var("PATH") {
-        for dir in std::env::split_paths(&path) {
-            let Ok(rd) = std::fs::read_dir(&dir) else {
+    let mut dirs: Vec<PathBuf> = std::env::var("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    for extra in [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/home/linuxbrew/.linuxbrew/bin",
+        "/home/linuxbrew/.linuxbrew/sbin",
+    ] {
+        dirs.push(PathBuf::from(extra));
+    }
+    if let Some(home) = dirs::home_dir() {
+        for rel in [
+            ".linuxbrew/bin",
+            ".linuxbrew/sbin",
+            ".local/bin",
+            ".cargo/bin",
+            ".bun/bin",
+        ] {
+            dirs.push(home.join(rel));
+        }
+    }
+    for dir in dirs {
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in rd.flatten() {
+            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                 continue;
-            };
-            for entry in rd.flatten() {
-                if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                    continue;
-                }
-                if is_executable(&entry) {
-                    if let Some(name) = entry.file_name().to_str() {
-                        set.insert(name.to_string());
-                    }
+            }
+            if is_executable(&entry) {
+                if let Some(name) = entry.file_name().to_str() {
+                    set.insert(name.to_string());
                 }
             }
         }

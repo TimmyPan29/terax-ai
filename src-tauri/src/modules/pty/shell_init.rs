@@ -284,6 +284,12 @@ mod unix {
         let mut seen = HashSet::new();
         let (_, login) = Shell::detect();
         let mut candidates = vec![login];
+        if let Ok(env_shell) = std::env::var("SHELL") {
+            let trimmed = env_shell.trim();
+            if !trimmed.is_empty() {
+                candidates.push(trimmed.to_string());
+            }
+        }
         if let Ok(content) = fs::read_to_string("/etc/shells") {
             for line in content.lines() {
                 let line = line.trim();
@@ -291,6 +297,20 @@ mod unix {
                     continue;
                 }
                 candidates.push(line.to_string());
+            }
+        }
+        let mut brew_prefixes = vec![
+            PathBuf::from("/opt/homebrew/bin"),
+            PathBuf::from("/usr/local/bin"),
+            PathBuf::from("/home/linuxbrew/.linuxbrew/bin"),
+        ];
+        if let Some(home) = dirs::home_dir() {
+            brew_prefixes.push(home.join(".linuxbrew/bin"));
+            brew_prefixes.push(home.join(".nix-profile/bin"));
+        }
+        for prefix in brew_prefixes {
+            for sh in ["zsh", "fish", "bash"] {
+                candidates.push(prefix.join(sh).to_string_lossy().into_owned());
             }
         }
         for path in candidates {
