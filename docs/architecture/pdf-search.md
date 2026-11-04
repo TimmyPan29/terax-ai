@@ -68,3 +68,7 @@ custom pixel inputs. The preview supports in-popup zoom and jumping to the
 referenced page, and is dismissed by Escape, its close button, or clicking
 outside it; its render task is cancelled on dismissal or document reload.
 External links and references without PDF link annotations are not resolved.
+When a numbered equation link resolves to the first-page `Fit` placeholder
+produced by a missing pdfTeX destination, the viewer checks section-qualified
+equation names from 0 to 32 and uses the destination only if it is unique.
+Unresolved or ambiguous cases report that the destination is unavailable.

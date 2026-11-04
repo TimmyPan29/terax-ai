@@ -36,6 +36,59 @@ function matchAnnotationAtPoint(
   return null;
 }
 
+async function pageIndex(document: PDFDocumentProxy, ref: unknown) {
+  return typeof ref === "number"
+    ? ref
+    : document.getPageIndex(
+        ref as Parameters<PDFDocumentProxy["getPageIndex"]>[0],
+      );
+}
+
+const recoveredEquations = new WeakMap<
+  PDFDocumentProxy,
+  Map<string, unknown[] | null>
+>();
+
+async function recoverEquationDestination(
+  document: PDFDocumentProxy,
+  name: string,
+  signal: AbortSignal,
+): Promise<unknown[] | null> {
+  const suffix = /^equation\.(\d+(?:\.\d+)*)$/.exec(name)?.[1];
+  if (!suffix) return null;
+  const cached = recoveredEquations.get(document);
+  if (cached?.has(name)) return cached.get(name) ?? null;
+
+  let match: unknown[] | null = null;
+  for (let start = 0; start <= 32; start += 8) {
+    if (signal.aborted) return null;
+    const results = await Promise.all(
+      Array.from({ length: Math.min(8, 33 - start) }, (_, offset) =>
+        document.getDestination(`equation.${start + offset}.${suffix}`),
+      ),
+    );
+    for (const candidate of results) {
+      if (!Array.isArray(candidate) || candidate[0] == null) continue;
+      if (
+        candidate[1]?.name === "Fit" &&
+        (await pageIndex(document, candidate[0])) === 0
+      )
+        continue;
+      if (match) return null;
+      match = candidate;
+    }
+  }
+  if (signal.aborted) return null;
+  const results = cached ?? new Map<string, unknown[] | null>();
+  if (results.size >= 128) {
+    const oldest = results.keys().next().value;
+    if (oldest !== undefined) results.delete(oldest);
+  }
+  results.set(name, match);
+  if (!cached) recoveredEquations.set(document, results);
+  return match;
+}
+
 /** Render an internal link's destination without moving the main viewer. */
 export async function renderReference(
   document: PDFDocumentProxy,
@@ -61,16 +114,24 @@ export async function renderReference(
         )
       : null);
   if (!destination || signal.aborted) return null;
-  const target =
+  let target =
     typeof destination === "string"
       ? await document.getDestination(destination)
       : destination;
   if (!Array.isArray(target) || target[0] == null || signal.aborted)
     return null;
-  const index =
-    typeof target[0] === "number"
-      ? target[0]
-      : await document.getPageIndex(target[0]);
+  let index = await pageIndex(document, target[0]);
+  if (
+    typeof destination === "string" &&
+    /^equation\.(\d+(?:\.\d+)*)$/.test(destination) &&
+    index === 0 &&
+    target.length === 2 &&
+    target[1]?.name === "Fit"
+  ) {
+    target = await recoverEquationDestination(document, destination, signal);
+    if (!target || target[0] == null || signal.aborted) return null;
+    index = await pageIndex(document, target[0]);
+  }
   if (index < 0 || index >= document.numPages || signal.aborted) return null;
   const page = await document.getPage(index + 1);
   if (signal.aborted) return null;
