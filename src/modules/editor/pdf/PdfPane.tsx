@@ -1,4 +1,5 @@
 import type { PdfSession } from "@/modules/editor/pdf/pdfSession";
+import { clearPdfSelectionOnBlankPointer } from "@/modules/editor/pdf/pdfSelection";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   useCallback,
@@ -395,6 +396,7 @@ export default function PdfPane({
       loadReferencePreview(hit, x, y, 1);
     };
     const onContainerPointerDown = (event: PointerEvent) => {
+      clearPdfSelectionOnBlankPointer(event, container);
       if (event.button === 2 && isPreviewModifier(event)) {
         triggerFromEvent(event);
       }
