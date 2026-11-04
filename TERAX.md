@@ -113,6 +113,9 @@ Enter, including a short compositionend-before-keydown grace period, and release
 the guard on Enter keyup so a subsequent press can submit immediately.
 
 The shared command bar activates after shell integration confirms prompt input.
+Command completion includes history and discovered tools; command highlighting
+uses a separate snapshot of the app process PATH and common shell builtins.
+Aliases, shell functions and PATH changes inside a shell are not represented.
 Bare shells keep direct terminal input. Bash before 4.4 reports
 `OSC 133;B;terax_blocks=0` and keeps its native prompt because it lacks PS0.
 

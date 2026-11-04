@@ -24,7 +24,7 @@ import {
   syntaxHighlighting,
 } from "@codemirror/language";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
-import { Compartment, EditorState, Prec } from "@codemirror/state";
+import { Compartment, EditorState, Prec, StateEffect } from "@codemirror/state";
 import {
   crosshairCursor,
   Decoration,
@@ -58,6 +58,8 @@ export type ShellEditorOptions = {
   onEscape?: () => boolean;
   /** Live command-name list (history first-words + PATH) for completion. */
   commandNames?: () => string[];
+  /** PATH executables for highlighting, excluding history completion candidates. */
+  executableNames?: () => ReadonlySet<string> | null;
   /** Fish-style full-command autosuggestion for the current input line. */
   suggest?: (line: string) => Promise<string | null>;
   /** Recency-ranked history for the ArrowUp popover (Ctrl-R style). */
@@ -75,6 +77,7 @@ export type ShellEditorHandle = {
   setValue(text: string): void;
   clear(): void;
   setEditable(editable: boolean): void;
+  refreshCommandHighlights(): void;
   retheme(fontFamily: string, fontSize: number, fontWeight: string): void;
   destroy(): void;
 };
@@ -287,12 +290,18 @@ function highlightStyle(): HighlightStyle {
   const fg = c.foreground ?? "inherit";
   return HighlightStyle.define([
     { tag: t.keyword, color: c.magenta ?? fg },
-    { tag: [t.function(t.variableName), t.standard(t.variableName)], color: c.green ?? fg },
+    {
+      tag: [t.function(t.variableName), t.standard(t.variableName)],
+      color: c.green ?? fg,
+    },
     { tag: t.string, color: c.yellow ?? fg },
     { tag: t.comment, color: c.brightBlack ?? fg, fontStyle: "italic" },
     { tag: [t.number, t.bool, t.atom], color: c.yellow ?? fg },
     { tag: [t.attributeName, t.propertyName], color: c.cyan ?? fg },
-    { tag: [t.special(t.variableName), t.definition(t.variableName)], color: c.blue ?? fg },
+    {
+      tag: [t.special(t.variableName), t.definition(t.variableName)],
+      color: c.blue ?? fg,
+    },
     { tag: t.variableName, color: fg },
     { tag: t.operator, color: c.brightBlack ?? fg },
   ]);
@@ -309,7 +318,34 @@ const PRECOMMAND_WORDS = new Set([
   "nice",
   "xargs",
 ]);
-const BUILTIN_COMMANDS = new Set([...SHELL_KEYWORDS, ...SHELL_COMMANDS]);
+const BUILTIN_COMMANDS = new Set([
+  ...SHELL_KEYWORDS,
+  "cd",
+  "pwd",
+  "echo",
+  "printf",
+  "kill",
+  "jobs",
+  "history",
+  "exit",
+  "command",
+  "builtin",
+  "exec",
+  "time",
+  "type",
+  "hash",
+  "true",
+  "false",
+  "test",
+  "[",
+  ".",
+  "eval",
+  "trap",
+  "wait",
+  "shift",
+  "getopts",
+  "umask",
+]);
 const ENV_ASSIGN_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
 const validCmdMark = Decoration.mark({ class: "cm-shell-cmd-valid" });
@@ -318,9 +354,13 @@ const flagMark = Decoration.mark({ class: "cm-shell-flag" });
 
 export function computeCommandHighlightRanges(
   doc: string,
-  knownCommands: ReadonlySet<string>,
+  knownCommands: ReadonlySet<string> | null,
 ): { from: number; to: number; kind: "valid" | "invalid" | "flag" }[] {
-  const out: { from: number; to: number; kind: "valid" | "invalid" | "flag" }[] = [];
+  const out: {
+    from: number;
+    to: number;
+    kind: "valid" | "invalid" | "flag";
+  }[] = [];
   let expectCommand = true;
   let i = 0;
   const n = doc.length;
@@ -331,7 +371,16 @@ export function computeCommandHighlightRanges(
       i++;
       continue;
     }
-    if (ch === "\n" || ch === ";" || ch === "|" || ch === "&" || ch === "(" || ch === ")" || ch === "{" || ch === "}") {
+    if (
+      ch === "\n" ||
+      ch === ";" ||
+      ch === "|" ||
+      ch === "&" ||
+      ch === "(" ||
+      ch === ")" ||
+      ch === "{" ||
+      ch === "}"
+    ) {
       expectCommand = true;
       i++;
       continue;
@@ -340,18 +389,6 @@ export function computeCommandHighlightRanges(
       while (i < n && doc[i] !== "\n") i++;
       continue;
     }
-    if (ch === "'" || ch === '"') {
-      const quote = ch;
-      i++;
-      while (i < n && doc[i] !== quote) {
-        if (doc[i] === "\\" && quote === '"') i++;
-        i++;
-      }
-      if (i < n) i++;
-      expectCommand = false;
-      continue;
-    }
-
     const start = i;
     while (
       i < n &&
@@ -364,10 +401,17 @@ export function computeCommandHighlightRanges(
       doc[i] !== "(" &&
       doc[i] !== ")" &&
       doc[i] !== "{" &&
-      doc[i] !== "}" &&
-      doc[i] !== "'" &&
-      doc[i] !== '"'
+      doc[i] !== "}"
     ) {
+      if (doc[i] === "'" || doc[i] === '"') {
+        const quote = doc[i++];
+        while (i < n && doc[i] !== quote) {
+          if (doc[i] === "\\" && quote === '"' && i + 1 < n) i++;
+          i++;
+        }
+        if (i < n) i++;
+        continue;
+      }
       if (doc[i] === "\\" && i + 1 < n) i++;
       i++;
     }
@@ -378,18 +422,33 @@ export function computeCommandHighlightRanges(
       if (ENV_ASSIGN_RE.test(word)) {
         continue;
       }
+      if (word.includes("'") || word.includes('"') || word.includes("\\")) {
+        expectCommand = false;
+        continue;
+      }
       if (PRECOMMAND_WORDS.has(word)) {
-        out.push({ from: start, to: i, kind: "valid" });
+        if (BUILTIN_COMMANDS.has(word) || knownCommands) {
+          out.push({
+            from: start,
+            to: i,
+            kind:
+              BUILTIN_COMMANDS.has(word) || knownCommands?.has(word)
+                ? "valid"
+                : "invalid",
+          });
+        }
         continue;
       }
       const isPathLike = word.includes("/");
       const isValid =
-        isPathLike || BUILTIN_COMMANDS.has(word) || knownCommands.has(word);
-      out.push({
-        from: start,
-        to: i,
-        kind: isValid ? "valid" : "invalid",
-      });
+        isPathLike || BUILTIN_COMMANDS.has(word) || knownCommands?.has(word);
+      if (isValid || knownCommands) {
+        out.push({
+          from: start,
+          to: i,
+          kind: isValid ? "valid" : "invalid",
+        });
+      }
       expectCommand = false;
     } else if (word.startsWith("-") && word.length > 1) {
       out.push({ from: start, to: i, kind: "flag" });
@@ -399,7 +458,9 @@ export function computeCommandHighlightRanges(
   return out;
 }
 
-function commandHighlightPlugin(getCommands: () => string[]) {
+const refreshCommandHighlights = StateEffect.define<void>();
+
+function commandHighlightPlugin(getCommands: () => ReadonlySet<string> | null) {
   return ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
@@ -407,15 +468,20 @@ function commandHighlightPlugin(getCommands: () => string[]) {
         this.decorations = this.build(view);
       }
       update(update: ViewUpdate) {
-        if (update.docChanged || update.viewportChanged) {
+        if (
+          update.docChanged ||
+          update.viewportChanged ||
+          update.transactions.some((tr) =>
+            tr.effects.some((effect) => effect.is(refreshCommandHighlights)),
+          )
+        ) {
           this.decorations = this.build(update.view);
         }
       }
       build(view: EditorView): DecorationSet {
         const text = view.state.doc.toString();
         if (!text) return Decoration.none;
-        const known = new Set(getCommands());
-        const ranges = computeCommandHighlightRanges(text, known);
+        const ranges = computeCommandHighlightRanges(text, getCommands());
         if (ranges.length === 0) return Decoration.none;
         return Decoration.set(
           ranges.map((r) => {
@@ -560,7 +626,7 @@ export function createShellEditor(opts: ShellEditorOptions): ShellEditorHandle {
       tooltips({ parent: document.body }),
       shellLanguage,
       highlightComp.of(syntaxHighlighting(highlightStyle())),
-      commandHighlightPlugin(opts.commandNames ?? (() => [])),
+      commandHighlightPlugin(opts.executableNames ?? (() => null)),
       autocompletion({
         override: [
           makeCompletionSource(
@@ -614,6 +680,8 @@ export function createShellEditor(opts: ShellEditorOptions): ShellEditorHandle {
         selection: { anchor: text.length },
       }),
     clear: () => clear(view),
+    refreshCommandHighlights: () =>
+      view.dispatch({ effects: refreshCommandHighlights.of() }),
     setEditable: (editable) =>
       view.dispatch({
         effects: editableComp.reconfigure([

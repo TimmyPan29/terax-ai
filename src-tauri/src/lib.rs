@@ -373,6 +373,7 @@ pub fn run() {
             net::ai_http_stream,
             history::history_suggest,
             history::history_commands,
+            history::history_executables,
             history::history_record,
             history::history_list,
             vibrancy::window_backdrop_kind,

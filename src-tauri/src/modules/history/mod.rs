@@ -11,6 +11,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 struct Index {
     entries: Vec<HistEntry>,
     path_cmds: Vec<String>,
+    executable_cmds: Vec<String>,
+}
+
+impl Index {
+    fn executables(&self) -> Vec<String> {
+        self.executable_cmds.clone()
+    }
 }
 
 #[derive(Default)]
@@ -68,12 +75,14 @@ fn fish_histfile(home: Option<&PathBuf>) -> Option<PathBuf> {
     home.map(|h| h.join(".local/share/fish/fish_history"))
 }
 
-fn scan_path() -> Vec<String> {
+fn scan_path() -> (Vec<String>, Vec<String>) {
     use std::collections::HashSet;
     let mut set: HashSet<String> = HashSet::new();
     let mut dirs: Vec<PathBuf> = std::env::var("PATH")
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();
+    let path_dirs: HashSet<PathBuf> = dirs.iter().cloned().collect();
+    let mut executable_set: HashSet<String> = HashSet::new();
     for extra in [
         "/opt/homebrew/bin",
         "/opt/homebrew/sbin",
@@ -105,13 +114,30 @@ fn scan_path() -> Vec<String> {
             if is_executable(&entry) {
                 if let Some(name) = entry.file_name().to_str() {
                     set.insert(name.to_string());
+                    if path_dirs.contains(&dir) {
+                        executable_set.insert(name.to_string());
+                    }
+                    #[cfg(windows)]
+                    if let Some((stem, extension)) = name.rsplit_once('.') {
+                        if ["exe", "cmd", "bat", "com"]
+                            .iter()
+                            .any(|ext| extension.eq_ignore_ascii_case(ext))
+                        {
+                            set.insert(stem.to_string());
+                            if path_dirs.contains(&dir) {
+                                executable_set.insert(stem.to_string());
+                            }
+                        }
+                    }
                 }
             }
         }
     }
     let mut v: Vec<String> = set.into_iter().collect();
     v.sort();
-    v
+    let mut executables: Vec<String> = executable_set.into_iter().collect();
+    executables.sort();
+    (v, executables)
 }
 
 #[cfg(unix)]
@@ -119,7 +145,7 @@ fn is_executable(entry: &std::fs::DirEntry) -> bool {
     use std::os::unix::fs::PermissionsExt;
     entry
         .metadata()
-        .map(|m| m.permissions().mode() & 0o111 != 0)
+        .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
         .unwrap_or(false)
 }
 
@@ -139,9 +165,11 @@ fn is_executable(entry: &std::fs::DirEntry) -> bool {
 fn ensure(state: &HistoryState) -> std::sync::MutexGuard<'_, Option<Index>> {
     let mut guard = state.inner.lock().unwrap();
     if guard.is_none() {
+        let (path_cmds, executable_cmds) = scan_path();
         *guard = Some(Index {
             entries: build_index(read_histories()),
-            path_cmds: scan_path(),
+            path_cmds,
+            executable_cmds,
         });
     }
     guard
@@ -164,6 +192,12 @@ pub fn history_commands(
         Some(idx) => complete_commands(&idx.entries, &idx.path_cmds, &prefix, limit.unwrap_or(50)),
         None => Vec::new(),
     }
+}
+
+#[tauri::command]
+pub fn history_executables(state: tauri::State<'_, HistoryState>) -> Vec<String> {
+    let guard = ensure(&state);
+    guard.as_ref().map(Index::executables).unwrap_or_default()
 }
 
 #[tauri::command]
@@ -203,5 +237,25 @@ pub fn history_record(state: tauri::State<'_, HistoryState>, command: String) {
             }),
         }
         sort_recent(&mut idx.entries);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HistEntry, Index};
+
+    #[test]
+    fn executable_inventory_excludes_recorded_history() {
+        let mut index = Index {
+            entries: vec![],
+            path_cmds: vec!["git".to_string(), "history-only".to_string()],
+            executable_cmds: vec!["git".to_string()],
+        };
+        index.entries.push(HistEntry {
+            cmd: "notacommand --help".to_string(),
+            count: 1,
+            last: 1,
+        });
+        assert_eq!(index.executables(), vec!["git".to_string()]);
     }
 }
