@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 
 const button = "rounded px-2 py-1 text-xs hover:bg-accent disabled:opacity-40";
 
@@ -117,6 +118,9 @@ export default function PdfPane({
   onReveal: () => void;
 }) {
   const passwordId = useId();
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [portalHost] = useState(() => document.createElement("div"));
+  const [focusMode, setFocusMode] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const session = useRef<PdfSession | null>(null);
@@ -156,6 +160,40 @@ export default function PdfPane({
     incorrect: boolean;
   } | null>(null);
   const [passwordValue, setPasswordValue] = useState("");
+
+  useLayoutEffect(() => {
+    const parent = focusMode ? document.body : hostRef.current;
+    if (!parent) return;
+    portalHost.className = focusMode
+      ? "fixed inset-0 z-[45]"
+      : "h-full min-h-0 w-full min-w-0";
+    parent.appendChild(portalHost);
+  }, [focusMode, portalHost]);
+
+  useLayoutEffect(() => () => portalHost.remove(), [portalHost]);
+
+  useEffect(() => {
+    if (!visible) setFocusMode(false);
+  }, [visible]);
+
+  useEffect(() => {
+    if (!focusMode) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key !== "Escape" ||
+        event.defaultPrevented ||
+        searchOpen ||
+        preview ||
+        password
+      )
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      setFocusMode(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [focusMode, searchOpen, preview, password]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -428,70 +466,83 @@ export default function PdfPane({
     session.current?.closeFind();
     containerRef.current?.focus();
   };
-  return (
-    <div className="terax-pdf zoom-exempt flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background text-foreground">
-      <div
-        role="toolbar"
-        aria-label="PDF controls"
-        className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-2 py-1"
-      >
-        <button type="button" className={button} onClick={openSearch}>
-          Find
-        </button>
-        <button
-          type="button"
-          className={button}
-          aria-label="Previous page"
-          disabled={!ready || page <= 1}
-          onClick={() => session.current?.goToPage(page - 1)}
+  const enterFocusMode = () => {
+    closeSearch();
+    previewAbort.current?.abort();
+    setPreview(null);
+    setFocusMode(true);
+  };
+  const viewer = (
+    <div
+      className={`terax-pdf ${focusMode ? "" : "zoom-exempt"} flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-background text-foreground`}
+    >
+      {!focusMode && (
+        <div
+          role="toolbar"
+          aria-label="PDF controls"
+          className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-2 py-1"
         >
-          ‹
-        </button>
-        <output className="text-xs tabular-nums" aria-label="PDF page">
-          {page} / {pages || "…"}
-        </output>
-        <button
-          type="button"
-          className={button}
-          aria-label="Next page"
-          disabled={!ready || page >= pages}
-          onClick={() => session.current?.goToPage(page + 1)}
-        >
-          ›
-        </button>
-        <button
-          type="button"
-          className={button}
-          aria-label="Zoom out"
-          disabled={!ready}
-          onClick={() => session.current?.zoom(-1)}
-        >
-          −
-        </button>
-        <button
-          type="button"
-          className={button}
-          aria-label="Zoom in"
-          disabled={!ready}
-          onClick={() => session.current?.zoom(1)}
-        >
-          +
-        </button>
-        <button
-          type="button"
-          className={button}
-          disabled={!ready}
-          onClick={() => session.current?.fit()}
-        >
-          Fit width
-        </button>
-        <button type="button" className={button} onClick={onReload}>
-          Reload
-        </button>
-        <button type="button" className={button} onClick={onReveal}>
-          Show in folder
-        </button>
-      </div>
+          <button type="button" className={button} onClick={openSearch}>
+            Find
+          </button>
+          <button
+            type="button"
+            className={button}
+            aria-label="Previous page"
+            disabled={!ready || page <= 1}
+            onClick={() => session.current?.goToPage(page - 1)}
+          >
+            ‹
+          </button>
+          <output className="text-xs tabular-nums" aria-label="PDF page">
+            {page} / {pages || "…"}
+          </output>
+          <button
+            type="button"
+            className={button}
+            aria-label="Next page"
+            disabled={!ready || page >= pages}
+            onClick={() => session.current?.goToPage(page + 1)}
+          >
+            ›
+          </button>
+          <button
+            type="button"
+            className={button}
+            aria-label="Zoom out"
+            disabled={!ready}
+            onClick={() => session.current?.zoom(-1)}
+          >
+            −
+          </button>
+          <button
+            type="button"
+            className={button}
+            aria-label="Zoom in"
+            disabled={!ready}
+            onClick={() => session.current?.zoom(1)}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            className={button}
+            disabled={!ready}
+            onClick={() => session.current?.fit()}
+          >
+            Fit width
+          </button>
+          <button type="button" className={button} onClick={onReload}>
+            Reload
+          </button>
+          <button type="button" className={button} onClick={onReveal}>
+            Show in folder
+          </button>
+          <button type="button" className={button} onClick={enterFocusMode}>
+            Focus mode
+          </button>
+        </div>
+      )}
       {searchOpen && (
         <search
           aria-label="Find in PDF"
@@ -592,6 +643,15 @@ export default function PdfPane({
         >
           <div className="pdfViewer" />
         </div>
+        {focusMode && (
+          <button
+            type="button"
+            className="absolute right-3 top-3 z-10 rounded border border-border bg-background px-2 py-1 text-xs text-foreground shadow-sm hover:bg-accent"
+            onClick={() => setFocusMode(false)}
+          >
+            Exit focus mode
+          </button>
+        )}
         {preview && (
           <div
             ref={previewRef}
@@ -714,5 +774,11 @@ export default function PdfPane({
         )}
       </div>
     </div>
+  );
+  return (
+    <>
+      <div ref={hostRef} className="h-full min-h-0 w-full min-w-0" />
+      {createPortal(viewer, portalHost)}
+    </>
   );
 }
