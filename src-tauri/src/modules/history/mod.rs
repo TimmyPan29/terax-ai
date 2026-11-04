@@ -143,8 +143,7 @@ fn scan_path() -> (Vec<String>, Vec<String>) {
 #[cfg(unix)]
 fn is_executable(entry: &std::fs::DirEntry) -> bool {
     use std::os::unix::fs::PermissionsExt;
-    entry
-        .metadata()
+    std::fs::metadata(entry.path())
         .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
         .unwrap_or(false)
 }
@@ -257,5 +256,33 @@ mod tests {
             last: 1,
         });
         assert_eq!(index.executables(), vec!["git".to_string()]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn executable_detection_follows_symlinks_and_rejects_directories() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("tool");
+        std::fs::write(&target, "").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+        symlink(&target, dir.path().join("tool-link")).unwrap();
+        symlink(dir.path(), dir.path().join("dir-link")).unwrap();
+
+        let mut entries: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        entries.sort_by_key(|entry| entry.file_name());
+        let lookup = |name: &str| {
+            entries
+                .iter()
+                .find(|entry| entry.file_name() == name)
+                .unwrap()
+        };
+        assert!(super::is_executable(lookup("tool")));
+        assert!(super::is_executable(lookup("tool-link")));
+        assert!(!super::is_executable(lookup("dir-link")));
     }
 }
