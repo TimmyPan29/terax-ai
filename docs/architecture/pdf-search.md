@@ -50,6 +50,10 @@ https://github.com/mozilla/pdf.js/blob/master/test/pdfs/tracemonkey.pdf
 
 ## Refresh and reference previews
 
+An unmodified primary-pointer press on blank PDF space clears the document's
+native text selection. Text, interactive controls, modifier-assisted gestures,
+and selections belonging to other surfaces are left to their normal handlers.
+
 Each editor instance uses a unique asset cache key and increments its revision
 on file watch notifications or manual reload. This prevents reopening a PDF
 from reusing an earlier tab's cached bytes. The viewer retains its page and
