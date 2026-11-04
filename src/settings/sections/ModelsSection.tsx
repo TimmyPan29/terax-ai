@@ -22,6 +22,7 @@ import { useCodexStore } from "@/modules/ai/codex/store";
 import {
   type CustomEndpoint,
   compatModelIdForEndpoint,
+  DEFAULT_AUTOCOMPLETE_MODEL,
   DEFAULT_MODEL_ID,
   getAutocompleteEligibleModels,
   getCompatModelInfo,
@@ -52,6 +53,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   type AutocompleteTrigger,
   emitKeysChanged,
+  normalizeAutocompleteProvider,
   setAutocompleteEnabled,
   setAutocompleteModelId,
   setAutocompleteProvider,
@@ -687,7 +689,9 @@ function AutocompleteRow({
 }) {
   const enabled = usePreferencesStore((s) => s.autocompleteEnabled);
   const trigger = usePreferencesStore((s) => s.autocompleteTrigger);
-  const provider = usePreferencesStore((s) => s.autocompleteProvider);
+  const provider = normalizeAutocompleteProvider(
+    usePreferencesStore((s) => s.autocompleteProvider),
+  );
   const modelId = usePreferencesStore((s) => s.autocompleteModelId);
   const eligible = useMemo(() => getAutocompleteEligibleModels(), []);
   const userShortcuts = usePreferencesStore((s) => s.shortcuts);
@@ -732,7 +736,12 @@ function AutocompleteRow({
     }
     return (
       MODELS.find((m) => m.provider === provider && m.id === modelId) ??
-      MODELS.find((m) => m.id === modelId) ??
+      MODELS.find(
+        (m) =>
+          m.provider === provider &&
+          m.id === DEFAULT_AUTOCOMPLETE_MODEL[provider],
+      ) ??
+      eligible.find((m) => m.provider === provider) ??
       eligible[0]
     );
   }, [eligible, provider, modelId, customEndpoints]);

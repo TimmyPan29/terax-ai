@@ -47,3 +47,24 @@ Verification for v1.0.4:
 
 Reference fixture:
 https://github.com/mozilla/pdf.js/blob/master/test/pdfs/tracemonkey.pdf
+
+## Refresh and reference previews
+
+Each editor instance uses a unique asset cache key and increments its revision
+on file watch notifications or manual reload. This prevents reopening a PDF
+from reusing an earlier tab's cached bytes. The viewer retains its page and
+search state across reloads.
+
+Command-right-click on macOS, or Control-right-click on Windows and Linux,
+on a PDF internal link opens a high-DPI scrollable preview of its destination
+on the first press (handling both `pointerdown` and `contextmenu`, plus
+bounding-box and PDF user-space coordinate fallbacks when `.textLayer.selecting`
+is active). Named and explicit PDF destinations (`XYZ`, `FitH`, `FitBH`, `FitR`,
+`FitV`, `FitBV`) are resolved without navigating the main viewer, rendered at
+column-fit CSS magnification with `devicePixelRatio` supersampling, and framed
+around the target equation or section. Popup dimensions (`pdfPreviewWidth`,
+`pdfPreviewHeight`) are configurable in Settings → Editor with presets and
+custom pixel inputs. The preview supports in-popup zoom and jumping to the
+referenced page, and is dismissed by Escape, its close button, or clicking
+outside it; its render task is cancelled on dismissal or document reload.
+External links and references without PDF link annotations are not resolved.

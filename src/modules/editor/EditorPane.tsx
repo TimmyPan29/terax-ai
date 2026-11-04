@@ -173,6 +173,7 @@ export const EditorPane = memo(
     const languageRef = useRef<string | null>(null);
     const [langId, setLangId] = useState<string | null>(null);
     const [reloadRevision, setReloadRevision] = useState(0);
+    const [assetCacheKey] = useState(() => crypto.randomUUID());
     const apiKeyRef = useRef<string | null>(null);
 
     useEffect(() => {
@@ -618,7 +619,7 @@ export const EditorPane = memo(
       );
     }
     if (path.toLowerCase().endsWith(".pdf")) {
-      const assetUrl = `${convertFileSrc(path)}?v=${reloadRevision}`;
+      const assetUrl = `${convertFileSrc(path)}?v=${assetCacheKey}-${reloadRevision}`;
       return (
         <Suspense
           fallback={
@@ -628,7 +629,7 @@ export const EditorPane = memo(
           }
         >
           <PdfPane
-            key={assetUrl}
+            key={path}
             url={assetUrl}
             visible={visible}
             searchRequest={pdfSearchRequest}
@@ -656,7 +657,7 @@ export const EditorPane = memo(
       const isAudio = ["mp3", "wav", "flac", "aac", "m4a"].includes(ext);
 
       if (isImage) {
-        const assetUrl = `${convertFileSrc(path)}?v=${reloadRevision}`;
+        const assetUrl = `${convertFileSrc(path)}?v=${assetCacheKey}-${reloadRevision}`;
         return (
           <ImagePreview
             key={assetUrl}

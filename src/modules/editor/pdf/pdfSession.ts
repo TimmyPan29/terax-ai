@@ -1,3 +1,7 @@
+import {
+  type PdfReferenceTarget,
+  renderReference,
+} from "@/modules/editor/pdf/pdfReference";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import "pdfjs-dist/legacy/web/pdf_viewer.css";
@@ -105,8 +109,10 @@ export async function createPdfSession(
       ),
     { signal },
   );
+  let pdfDocument: pdfjs.PDFDocumentProxy;
   try {
     const document = await task.promise;
+    pdfDocument = document;
     if (signal.aborted) throw new DOMException("PDF closed", "AbortError");
     linkService.setDocument(document);
     viewer.setDocument(document);
@@ -116,6 +122,13 @@ export async function createPdfSession(
     throw error;
   }
   return {
+    renderReference(
+      sourcePage: number,
+      target: PdfReferenceTarget,
+      previewSignal: AbortSignal,
+    ) {
+      return renderReference(pdfDocument, sourcePage, target, previewSignal);
+    },
     find(options: PdfFindOptions, again = false, backwards = false) {
       eventBus.dispatch("find", {
         source: container,
