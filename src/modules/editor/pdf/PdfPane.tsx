@@ -165,7 +165,7 @@ export default function PdfPane({
     const parent = focusMode ? document.body : hostRef.current;
     if (!parent) return;
     portalHost.className = focusMode
-      ? "fixed inset-0 z-[9999]"
+      ? "fixed inset-0 z-[45]"
       : "h-full min-h-0 w-full min-w-0";
     parent.appendChild(portalHost);
   }, [focusMode, portalHost]);
