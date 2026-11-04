@@ -17,6 +17,7 @@ import {
 import { useTerminalFont } from "../lib/useTerminalFont";
 import {
   historyCommands,
+  historyExecutables,
   historyList,
   historyRecord,
   historySuggest,
@@ -45,6 +46,7 @@ export default function ShellInput({
   const hostRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<ShellEditorHandle | null>(null);
   const commandsRef = useRef<string[]>([]);
+  const executablesRef = useRef<ReadonlySet<string> | null>(null);
   const cbRef = useRef({ onSubmit, onInterrupt, getCwd });
   cbRef.current = { onSubmit, onInterrupt, getCwd };
   const leafIdRef = useRef(leafId);
@@ -57,6 +59,11 @@ export default function ShellInput({
     let alive = true;
     historyCommands("", 2000).then((cmds) => {
       if (alive) commandsRef.current = cmds;
+    });
+    historyExecutables().then((cmds) => {
+      if (!alive) return;
+      executablesRef.current = cmds ? new Set(cmds) : null;
+      handleRef.current?.refreshCommandHighlights();
     });
     return () => {
       alive = false;
@@ -83,6 +90,7 @@ export default function ShellInput({
       fontWeight: fontRef.current.fontWeight,
       placeholderText: `Run a command  -  ↑ history  ${fmtShortcut(MOD_KEY, "U")} switch to AI`,
       commandNames: () => commandsRef.current,
+      executableNames: () => executablesRef.current,
       getCwd: () => cbRef.current.getCwd(),
       onChange: (text) =>
         setLeafInputActivity(leafIdRef.current, text.length > 0),
