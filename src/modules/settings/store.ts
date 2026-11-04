@@ -16,6 +16,7 @@ import {
   migrateLegacyCompatEndpoint,
   OLLAMA_DEFAULT_BASE_URL,
   OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
+  PROVIDERS,
   type SttProvider,
   WHISPERCPP_DEFAULT_BASE_URL,
 } from "@/modules/ai/config";
@@ -414,6 +415,15 @@ async function writePref<T>(key: string, value: T): Promise<void> {
   await emit(PREFS_CHANGED_EVENT, { key, value });
 }
 
+export function normalizeAutocompleteProvider(
+  value: unknown,
+): AutocompleteProviderId {
+  return (
+    PROVIDERS.find((provider) => provider.id === value)?.id ??
+    DEFAULT_PREFERENCES.autocompleteProvider
+  );
+}
+
 export async function loadPreferences(): Promise<Preferences> {
   // Single IPC roundtrip — fetching keys individually fans out to one
   // `plugin:store|get` per setting and is the dominant boot cost.
@@ -464,12 +474,15 @@ export async function loadPreferences(): Promise<Preferences> {
     autocompleteTrigger:
       get<AutocompleteTrigger>(KEY_AUTOCOMPLETE_TRIGGER) ??
       DEFAULT_PREFERENCES.autocompleteTrigger,
-    autocompleteProvider:
-      get<AutocompleteProviderId>(KEY_AUTOCOMPLETE_PROVIDER) ??
-      DEFAULT_PREFERENCES.autocompleteProvider,
+    autocompleteProvider: normalizeAutocompleteProvider(
+      get<unknown>(KEY_AUTOCOMPLETE_PROVIDER),
+    ),
     autocompleteModelId:
-      get<string>(KEY_AUTOCOMPLETE_MODEL) ??
-      DEFAULT_PREFERENCES.autocompleteModelId,
+      normalizeAutocompleteProvider(get<unknown>(KEY_AUTOCOMPLETE_PROVIDER)) ===
+      get<unknown>(KEY_AUTOCOMPLETE_PROVIDER)
+        ? (get<string>(KEY_AUTOCOMPLETE_MODEL) ??
+          DEFAULT_PREFERENCES.autocompleteModelId)
+        : DEFAULT_PREFERENCES.autocompleteModelId,
     lmstudioBaseURL:
       get<string>(KEY_LMSTUDIO_BASE_URL) ?? DEFAULT_PREFERENCES.lmstudioBaseURL,
     lmstudioModelId:
@@ -726,7 +739,10 @@ export async function setAutocompleteEnabled(value: boolean): Promise<void> {
 export async function setAutocompleteProvider(
   value: AutocompleteProviderId,
 ): Promise<void> {
-  await writePref(KEY_AUTOCOMPLETE_PROVIDER, value);
+  await writePref(
+    KEY_AUTOCOMPLETE_PROVIDER,
+    normalizeAutocompleteProvider(value),
+  );
 }
 
 export async function setAutocompleteModelId(value: string): Promise<void> {
@@ -1113,13 +1129,25 @@ export async function onPreferencesChange(
   // arrive via the Tauri event emitted by writePref().
   const unsubLocal = await store.onChange<unknown>((key, value) => {
     const mapped = map[key];
-    if (mapped) cb(mapped, value);
+    if (mapped)
+      cb(
+        mapped,
+        mapped === "autocompleteProvider"
+          ? normalizeAutocompleteProvider(value)
+          : value,
+      );
   });
   const unsubEvent = await listen<{ key: string; value: unknown }>(
     PREFS_CHANGED_EVENT,
     (e) => {
       const mapped = map[e.payload.key];
-      if (mapped) cb(mapped, e.payload.value);
+      if (mapped)
+        cb(
+          mapped,
+          mapped === "autocompleteProvider"
+            ? normalizeAutocompleteProvider(e.payload.value)
+            : e.payload.value,
+        );
     },
   );
   return () => {
