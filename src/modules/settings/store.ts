@@ -185,6 +185,8 @@ export type Preferences = {
   editorFormatterByLang: Record<string, EditorFormatter>;
   /** Shell template for the "custom" formatter; {file} is the quoted path. */
   editorCustomFormatCommand: string;
+  pdfPreviewWidth: number;
+  pdfPreviewHeight: number;
   lspActivation: Record<string, LspActivation>;
   lspCustomServers: LspCustomServer[];
 };
@@ -281,8 +283,25 @@ const KEY_EDITOR_FORMAT_ON_SAVE = "editorFormatOnSave";
 const KEY_EDITOR_FORMATTER = "editorFormatter";
 const KEY_EDITOR_FORMATTER_BY_LANG = "editorFormatterByLang";
 const KEY_EDITOR_CUSTOM_FORMAT_COMMAND = "editorCustomFormatCommand";
+const KEY_PDF_PREVIEW_WIDTH = "pdfPreviewWidth";
+const KEY_PDF_PREVIEW_HEIGHT = "pdfPreviewHeight";
 const KEY_LSP_ACTIVATION = "lspActivation";
 const KEY_LSP_CUSTOM_SERVERS = "lspCustomServers";
+
+export const PDF_PREVIEW_WIDTH_DEFAULT = 560;
+export const PDF_PREVIEW_WIDTH_MIN = 320;
+export const PDF_PREVIEW_WIDTH_MAX = 1200;
+
+export const PDF_PREVIEW_HEIGHT_DEFAULT = 380;
+export const PDF_PREVIEW_HEIGHT_MIN = 220;
+export const PDF_PREVIEW_HEIGHT_MAX = 900;
+
+export const PDF_PREVIEW_SIZE_PRESETS = [
+  { id: "small", label: "Small (440 × 300)", width: 440, height: 300 },
+  { id: "medium", label: "Medium (560 × 380)", width: 560, height: 380 },
+  { id: "large", label: "Large (720 × 480)", width: 720, height: 480 },
+  { id: "xlarge", label: "Extra Large (880 × 580)", width: 880, height: 580 },
+] as const;
 
 export const TERMINAL_FONT_SIZE_DEFAULT = 14;
 export const TERMINAL_FONT_SIZE_MIN = 8;
@@ -375,6 +394,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   editorFormatter: "lsp",
   editorFormatterByLang: {},
   editorCustomFormatCommand: "",
+  pdfPreviewWidth: PDF_PREVIEW_WIDTH_DEFAULT,
+  pdfPreviewHeight: PDF_PREVIEW_HEIGHT_DEFAULT,
   lspActivation: {},
   lspCustomServers: [],
 };
@@ -581,6 +602,13 @@ export async function loadPreferences(): Promise<Preferences> {
     editorCustomFormatCommand:
       get<string>(KEY_EDITOR_CUSTOM_FORMAT_COMMAND) ??
       DEFAULT_PREFERENCES.editorCustomFormatCommand,
+    pdfPreviewWidth: clampPdfPreviewWidth(
+      get<number>(KEY_PDF_PREVIEW_WIDTH) ?? DEFAULT_PREFERENCES.pdfPreviewWidth,
+    ),
+    pdfPreviewHeight: clampPdfPreviewHeight(
+      get<number>(KEY_PDF_PREVIEW_HEIGHT) ??
+        DEFAULT_PREFERENCES.pdfPreviewHeight,
+    ),
     lspActivation:
       get<Record<string, LspActivation>>(KEY_LSP_ACTIVATION) ??
       DEFAULT_PREFERENCES.lspActivation,
@@ -942,6 +970,38 @@ export async function setEditorCustomFormatCommand(
   await writePref(KEY_EDITOR_CUSTOM_FORMAT_COMMAND, value);
 }
 
+export function clampPdfPreviewWidth(value: number): number {
+  if (!Number.isFinite(value)) return PDF_PREVIEW_WIDTH_DEFAULT;
+  return Math.min(
+    PDF_PREVIEW_WIDTH_MAX,
+    Math.max(PDF_PREVIEW_WIDTH_MIN, Math.round(value)),
+  );
+}
+
+export function clampPdfPreviewHeight(value: number): number {
+  if (!Number.isFinite(value)) return PDF_PREVIEW_HEIGHT_DEFAULT;
+  return Math.min(
+    PDF_PREVIEW_HEIGHT_MAX,
+    Math.max(PDF_PREVIEW_HEIGHT_MIN, Math.round(value)),
+  );
+}
+
+export async function setPdfPreviewWidth(value: number): Promise<void> {
+  await writePref(KEY_PDF_PREVIEW_WIDTH, clampPdfPreviewWidth(value));
+}
+
+export async function setPdfPreviewHeight(value: number): Promise<void> {
+  await writePref(KEY_PDF_PREVIEW_HEIGHT, clampPdfPreviewHeight(value));
+}
+
+export async function setPdfPreviewSize(
+  width: number,
+  height: number,
+): Promise<void> {
+  await writePref(KEY_PDF_PREVIEW_WIDTH, clampPdfPreviewWidth(width));
+  await writePref(KEY_PDF_PREVIEW_HEIGHT, clampPdfPreviewHeight(height));
+}
+
 export async function setAgentNotifications(value: boolean): Promise<void> {
   await writePref(KEY_AGENT_NOTIFICATIONS, value);
 }
@@ -1044,6 +1104,8 @@ export async function onPreferencesChange(
     [KEY_EDITOR_FORMATTER]: "editorFormatter",
     [KEY_EDITOR_FORMATTER_BY_LANG]: "editorFormatterByLang",
     [KEY_EDITOR_CUSTOM_FORMAT_COMMAND]: "editorCustomFormatCommand",
+    [KEY_PDF_PREVIEW_WIDTH]: "pdfPreviewWidth",
+    [KEY_PDF_PREVIEW_HEIGHT]: "pdfPreviewHeight",
     [KEY_LSP_ACTIVATION]: "lspActivation",
     [KEY_LSP_CUSTOM_SERVERS]: "lspCustomServers",
   };

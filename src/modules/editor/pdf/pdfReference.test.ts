@@ -91,4 +91,61 @@ describe("reference preview", () => {
     expect(await pending).toBeNull();
     expect(cancel).toHaveBeenCalledOnce();
   });
+  it("supersamples DOM canvases with HiDPI transform and column-fit scale", async () => {
+    const style = { width: "", height: "", display: "" };
+    const canvas = { width: 0, height: 0, style, getContext: () => ({}) };
+    vi.stubGlobal("window", {
+      devicePixelRatio: 2,
+      document: { createElement: () => canvas },
+    });
+    const render = vi.fn(() => ({
+      promise: Promise.resolve(),
+      cancel: vi.fn(),
+    }));
+    const getViewport = vi.fn(({ scale }: { scale: number }) => ({
+      width: 600 * scale,
+      height: 800 * scale,
+      convertToViewportPoint: (x: number, y: number) => [
+        x * scale,
+        (800 - y) * scale,
+      ],
+    }));
+    const document = {
+      numPages: 4,
+      getPage: vi.fn(async (page: number) =>
+        page === 2
+          ? {
+              view: [0, 0, 600, 800],
+              getAnnotations: async () => [
+                {
+                  id: "eq-1",
+                  dest: [0, { name: "FitR" }, 60, 500, 540, 640],
+                  rect: [480, 390, 520, 410],
+                },
+              ],
+            }
+          : {
+              view: [0, 0, 600, 800],
+              getViewport,
+              render,
+            },
+      ),
+      getDestination: vi.fn(),
+      getPageIndex: vi.fn(async () => 0),
+    } as unknown as PDFDocumentProxy;
+    const result = await renderReference(
+      document,
+      2,
+      { relX: 500 / 600, relY: 0.5, previewWidth: 720, zoom: 1.25 },
+      new AbortController().signal,
+    );
+    expect(result?.page).toBe(1);
+    expect(canvas.width).toBeGreaterThan(2000);
+    expect(style.width).toMatch(/^\d+px$/);
+    expect(render).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transform: [2, 0, 0, 2, 0, 0],
+      }),
+    );
+  });
 });

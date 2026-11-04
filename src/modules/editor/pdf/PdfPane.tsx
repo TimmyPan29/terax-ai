@@ -1,7 +1,107 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { PdfSession } from "@/modules/editor/pdf/pdfSession";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 const button = "rounded px-2 py-1 text-xs hover:bg-accent disabled:opacity-40";
+
+type LinkHit = {
+  pageNumber: number;
+  id?: string;
+  relX?: number;
+  relY?: number;
+};
+
+function findLinkAtEvent(
+  container: HTMLElement,
+  event: MouseEvent,
+): LinkHit | null {
+  const targetEl =
+    event.target instanceof Element
+      ? event.target
+      : ((event.target as Node | null)?.parentElement ?? null);
+  const directAnchor = targetEl?.closest<HTMLAnchorElement>(
+    ".linkAnnotation[data-internal-link] a[data-element-id], .linkAnnotation a[data-element-id]",
+  );
+  const directSection = targetEl?.closest<HTMLElement>(
+    ".linkAnnotation[data-internal-link][data-annotation-id], .linkAnnotation[data-annotation-id]",
+  );
+  let pageElement = (
+    directAnchor ??
+    directSection ??
+    targetEl
+  )?.closest<HTMLElement>(".page[data-page-number]");
+  if (!pageElement) {
+    for (const candidate of container.querySelectorAll<HTMLElement>(
+      ".page[data-page-number]",
+    )) {
+      const rect = candidate.getBoundingClientRect();
+      if (
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom
+      ) {
+        pageElement = candidate;
+        break;
+      }
+    }
+  }
+  const pageNumber = Number(pageElement?.dataset.pageNumber);
+  if (!pageElement || !pageNumber) return null;
+  let id =
+    directAnchor?.dataset.elementId ?? directSection?.dataset.annotationId;
+  if (!id) {
+    // Fallback when .textLayer.selecting disables pointer-events on .annotationLayer
+    // or when clicking slightly beside a narrow equation reference like (1).
+    const candidates = pageElement.querySelectorAll<HTMLElement>(
+      ".linkAnnotation[data-internal-link] a[data-element-id], .linkAnnotation a[data-element-id], .linkAnnotation[data-annotation-id]",
+    );
+    for (const pad of [0, 6]) {
+      for (const el of candidates) {
+        const rect = el.getBoundingClientRect();
+        if (
+          rect.width > 0 &&
+          rect.height > 0 &&
+          event.clientX >= rect.left - pad &&
+          event.clientX <= rect.right + pad &&
+          event.clientY >= rect.top - pad &&
+          event.clientY <= rect.bottom + pad
+        ) {
+          id =
+            el.dataset.elementId ??
+            el.closest<HTMLElement>("[data-annotation-id]")?.dataset
+              .annotationId;
+          if (id) break;
+        }
+      }
+      if (id) break;
+    }
+  }
+  const pageRect = pageElement.getBoundingClientRect();
+  const relX =
+    pageRect.width > 0
+      ? Math.max(
+          0,
+          Math.min(1, (event.clientX - pageRect.left) / pageRect.width),
+        )
+      : undefined;
+  const relY =
+    pageRect.height > 0
+      ? Math.max(
+          0,
+          Math.min(1, (event.clientY - pageRect.top) / pageRect.height),
+        )
+      : undefined;
+  if (!id && (relX === undefined || relY === undefined)) return null;
+  return { pageNumber, id, relX, relY };
+}
 
 export default function PdfPane({
   url,
@@ -22,9 +122,17 @@ export default function PdfPane({
   const session = useRef<PdfSession | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const previewAbort = useRef<AbortController | null>(null);
+  const lastTrigger = useRef<{ time: number; page: number; id?: string }>({
+    time: 0,
+    page: 0,
+  });
+  const previewWidth = usePreferencesStore((s) => s.pdfPreviewWidth);
+  const previewHeight = usePreferencesStore((s) => s.pdfPreviewHeight);
   const [preview, setPreview] = useState<{
     x: number;
     y: number;
+    hit: LinkHit;
+    zoom: number;
     page?: number;
     error?: string;
     rendered?: { canvas: HTMLCanvasElement; x: number; y: number };
@@ -124,9 +232,74 @@ export default function PdfPane({
       session.current?.find({ query, caseSensitive, wholeWords });
   }, [query, caseSensitive, wholeWords, ready, visible, searchOpen]);
 
+  const loadReferencePreview = useCallback(
+    (hit: LinkHit, x: number, y: number, zoom: number) => {
+      if (!session.current) return;
+      previewAbort.current?.abort();
+      const abort = new AbortController();
+      previewAbort.current = abort;
+      setPreview((prev) => ({
+        x,
+        y,
+        hit,
+        zoom,
+        page: prev?.hit === hit ? prev.page : undefined,
+        rendered: prev?.hit === hit ? prev.rendered : undefined,
+      }));
+      void session.current
+        .renderReference(
+          hit.pageNumber,
+          {
+            id: hit.id,
+            relX: hit.relX,
+            relY: hit.relY,
+            previewWidth,
+            zoom,
+          },
+          abort.signal,
+        )
+        .then((result) => {
+          if (abort.signal.aborted) return;
+          if (!result) {
+            setPreview({
+              x,
+              y,
+              hit,
+              zoom,
+              error: "Reference destination unavailable",
+            });
+            return;
+          }
+          setPreview({
+            x,
+            y,
+            hit,
+            zoom,
+            page: result.page,
+            rendered: result,
+          });
+        })
+        .catch(() => {
+          if (!abort.signal.aborted)
+            setPreview({
+              x,
+              y,
+              hit,
+              zoom,
+              error: "Unable to load reference",
+            });
+        });
+    },
+    [previewWidth],
+  );
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !visible) return;
+    const isPreviewModifier = (event: MouseEvent | PointerEvent) => {
+      const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+      return isMac ? event.metaKey : event.ctrlKey;
+    };
     const close = () => {
       previewAbort.current?.abort();
       setPreview(null);
@@ -135,64 +308,74 @@ export default function PdfPane({
       if (event.key === "Escape") close();
     };
     const onPointerDown = (event: PointerEvent) => {
-      if (!previewRef.current?.contains(event.target as Node)) close();
+      if (previewRef.current?.contains(event.target as Node)) return;
+      // Ignore right-click / Cmd+Right-click events so opening a preview is never self-cancelled.
+      if (event.button === 2 || isPreviewModifier(event)) return;
+      if (Date.now() - lastTrigger.current.time < 250) return;
+      close();
     };
-    const onContextMenu = (event: MouseEvent) => {
-      const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
-      if (!(isMac ? event.metaKey : event.ctrlKey)) return;
-      const anchor = (event.target as Element).closest<HTMLAnchorElement>(
-        ".linkAnnotation[data-internal-link] a[data-element-id]",
-      );
-      const pageElement = anchor?.closest<HTMLElement>(
-        ".page[data-page-number]",
-      );
-      const pageNumber = Number(pageElement?.dataset.pageNumber);
-      const id = anchor?.dataset.elementId;
-      if (!id || !pageNumber || !session.current) return;
+    const triggerFromEvent = (event: MouseEvent) => {
+      if (!isPreviewModifier(event)) return;
+      if (event.type === "contextmenu") {
+        event.preventDefault();
+      }
+      if (!session.current) return;
+      const hit = findLinkAtEvent(container, event);
+      if (!hit) return;
       event.preventDefault();
-      previewAbort.current?.abort();
-      const abort = new AbortController();
-      previewAbort.current = abort;
+      event.stopPropagation();
+      const now = Date.now();
+      if (
+        event.type === "contextmenu" &&
+        now - lastTrigger.current.time < 400 &&
+        lastTrigger.current.page === hit.pageNumber &&
+        lastTrigger.current.id === hit.id
+      ) {
+        return;
+      }
+      lastTrigger.current = { time: now, page: hit.pageNumber, id: hit.id };
       const bounds = container.getBoundingClientRect();
+      const boxW = Math.min(previewWidth, Math.max(240, bounds.width - 16));
+      const boxH = Math.min(previewHeight, Math.max(180, bounds.height - 16));
+      const relCursorX = event.clientX - bounds.left;
+      const relCursorY = event.clientY - bounds.top;
       const x = Math.max(
-        0,
-        Math.min(
-          event.clientX - bounds.left,
-          bounds.width - Math.min(440, bounds.width),
-        ),
+        8,
+        Math.min(relCursorX - 36, Math.max(8, bounds.width - boxW - 8)),
       );
-      const y = Math.max(
-        0,
-        Math.min(
-          event.clientY - bounds.top,
-          bounds.height - Math.min(340, bounds.height),
-        ),
-      );
-      setPreview({ x, y });
-      void session.current
-        .renderReference(pageNumber, id, abort.signal)
-        .then((result) => {
-          if (abort.signal.aborted) return;
-          if (!result) {
-            setPreview({ x, y, error: "Reference destination unavailable" });
-            return;
-          }
-          setPreview({ x, y, page: result.page, rendered: result });
-        })
-        .catch(() => {
-          if (!abort.signal.aborted)
-            setPreview({ x, y, error: "Unable to load reference" });
-        });
+      const belowY = relCursorY + 14;
+      const aboveY = relCursorY - boxH - 12;
+      const y =
+        belowY + boxH <= bounds.height - 8
+          ? Math.max(8, belowY)
+          : aboveY >= 8
+            ? aboveY
+            : Math.max(
+                8,
+                Math.min(relCursorY, Math.max(8, bounds.height - boxH - 8)),
+              );
+      loadReferencePreview(hit, x, y, 1);
     };
-    container.addEventListener("contextmenu", onContextMenu);
+    const onContainerPointerDown = (event: PointerEvent) => {
+      if (event.button === 2 && isPreviewModifier(event)) {
+        triggerFromEvent(event);
+      }
+    };
+    container.addEventListener("pointerdown", onContainerPointerDown, true);
+    container.addEventListener("contextmenu", triggerFromEvent);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("pointerdown", onPointerDown);
     return () => {
-      container.removeEventListener("contextmenu", onContextMenu);
+      container.removeEventListener(
+        "pointerdown",
+        onContainerPointerDown,
+        true,
+      );
+      container.removeEventListener("contextmenu", triggerFromEvent);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("pointerdown", onPointerDown);
     };
-  }, [visible]);
+  }, [visible, previewWidth, previewHeight, loadReferencePreview]);
 
   useLayoutEffect(() => {
     if (!preview?.rendered) return;
@@ -201,9 +384,39 @@ export default function PdfPane({
     );
     if (!scroll) return;
     scroll.replaceChildren(preview.rendered.canvas);
-    scroll.scrollLeft = Math.max(0, preview.rendered.x - 30);
-    scroll.scrollTop = Math.max(0, preview.rendered.y - 30);
-  }, [preview]);
+    const cssCanvasWidth =
+      preview.rendered.canvas.offsetWidth ||
+      Number.parseFloat(preview.rendered.canvas.style?.width || "") ||
+      preview.rendered.canvas.width;
+    const viewWidth = scroll.clientWidth || previewWidth;
+    const viewHeight = scroll.clientHeight || previewHeight - 32;
+    const targetX = preview.rendered.x;
+    // Sioyek / Skim horizontal framing: when the PDF destination anchor is near
+    // the left or right margin (typical for LaTeX \label / \eqref), center the
+    // page content horizontally so the full equation and its number are visible.
+    const isMarginAnchor =
+      cssCanvasWidth > 0 &&
+      (targetX <= cssCanvasWidth * 0.22 || targetX >= cssCanvasWidth * 0.78);
+    scroll.scrollLeft = Math.max(
+      0,
+      isMarginAnchor && cssCanvasWidth > viewWidth
+        ? Math.round((cssCanvasWidth - viewWidth) / 2)
+        : Math.round(targetX - 30),
+    );
+    // Sioyek vertical framing: leave ~28% vertical headroom above the anchor
+    // so multi-line equations, integrals, and fractions above the baseline are not clipped.
+    scroll.scrollTop = Math.max(
+      0,
+      Math.round(preview.rendered.y - Math.max(40, viewHeight * 0.28)),
+    );
+  }, [preview, previewWidth, previewHeight]);
+
+  const zoomPreview = (factor: number) => {
+    if (!preview) return;
+    const nextZoom = Math.max(0.75, Math.min(2.5, preview.zoom * factor));
+    if (nextZoom === preview.zoom) return;
+    loadReferencePreview(preview.hit, preview.x, preview.y, nextZoom);
+  };
 
   const openSearch = () => {
     setSearchOpen(true);
@@ -384,26 +597,72 @@ export default function PdfPane({
             ref={previewRef}
             role="dialog"
             aria-label="Reference preview"
-            className="absolute z-20 flex max-h-full max-w-full flex-col overflow-hidden rounded border border-border bg-background shadow-xl"
-            style={{ left: preview.x, top: preview.y, width: 440, height: 340 }}
+            className="absolute z-20 flex max-h-[calc(100%-16px)] max-w-[calc(100%-16px)] flex-col overflow-hidden rounded-md border border-border bg-background/95 shadow-2xl backdrop-blur-sm"
+            style={{
+              left: preview.x,
+              top: preview.y,
+              width: previewWidth,
+              height: previewHeight,
+            }}
+            onWheel={(e) => {
+              if (e.metaKey || e.ctrlKey) {
+                e.preventDefault();
+                zoomPreview(e.deltaY < 0 ? 1.2 : 1 / 1.2);
+              }
+            }}
           >
-            <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-1 text-xs">
-              <span>
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-1 text-xs">
+              <span className="truncate font-medium">
                 {preview.page
                   ? `Reference · page ${preview.page}`
                   : preview.error || "Loading reference…"}
               </span>
-              <button
-                type="button"
-                aria-label="Close reference preview"
-                className={button}
-                onClick={() => {
-                  previewAbort.current?.abort();
-                  setPreview(null);
-                }}
-              >
-                ×
-              </button>
+              <div className="flex items-center gap-0.5">
+                {preview.page && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Zoom out preview"
+                      className={button}
+                      onClick={() => zoomPreview(1 / 1.25)}
+                    >
+                      −
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Zoom in preview"
+                      className={button}
+                      onClick={() => zoomPreview(1.25)}
+                    >
+                      +
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Go to referenced page"
+                      className={button}
+                      onClick={() => {
+                        if (preview.page)
+                          session.current?.goToPage(preview.page);
+                        previewAbort.current?.abort();
+                        setPreview(null);
+                      }}
+                    >
+                      Go
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  aria-label="Close reference preview"
+                  className={button}
+                  onClick={() => {
+                    previewAbort.current?.abort();
+                    setPreview(null);
+                  }}
+                >
+                  ×
+                </button>
+              </div>
             </div>
             <div
               data-preview-scroll

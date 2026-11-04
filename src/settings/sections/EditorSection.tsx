@@ -18,10 +18,17 @@ import {
   AUTO_SAVE_DELAY_MIN,
   clampAutoSaveDelay,
   clampEditorWordWrapColumn,
+  clampPdfPreviewHeight,
+  clampPdfPreviewWidth,
   EDITOR_FONT_SIZES,
   EDITOR_WORD_WRAP_COLUMN_MAX,
   EDITOR_WORD_WRAP_COLUMN_MIN,
   type EditorFormatter,
+  PDF_PREVIEW_HEIGHT_MAX,
+  PDF_PREVIEW_HEIGHT_MIN,
+  PDF_PREVIEW_SIZE_PRESETS,
+  PDF_PREVIEW_WIDTH_MAX,
+  PDF_PREVIEW_WIDTH_MIN,
   setEditorAutoSave,
   setEditorAutoSaveDelay,
   setEditorCustomFormatCommand,
@@ -31,6 +38,9 @@ import {
   setEditorFormatterByLang,
   setEditorWordWrap,
   setEditorWordWrapColumn,
+  setPdfPreviewHeight,
+  setPdfPreviewSize,
+  setPdfPreviewWidth,
   setVimMode,
 } from "@/modules/settings/store";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
@@ -56,6 +66,8 @@ export function EditorSection() {
   const editorFormatterByLang = usePreferencesStore(
     (s) => s.editorFormatterByLang,
   );
+  const pdfPreviewWidth = usePreferencesStore((s) => s.pdfPreviewWidth);
+  const pdfPreviewHeight = usePreferencesStore((s) => s.pdfPreviewHeight);
   const usesCustom =
     editorFormatter === "custom" ||
     Object.values(editorFormatterByLang).includes("custom");
@@ -161,6 +173,17 @@ export function EditorSection() {
             <FormatterOverrides />
           </>
         )}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>PDF Preview</Label>
+        <PdfPreviewSizeControls
+          width={pdfPreviewWidth}
+          height={pdfPreviewHeight}
+          onChangeSize={(w, h) => void setPdfPreviewSize(w, h)}
+          onChangeWidth={(w) => void setPdfPreviewWidth(w)}
+          onChangeHeight={(h) => void setPdfPreviewHeight(h)}
+        />
       </div>
 
       <LspServersGroup />
@@ -407,5 +430,131 @@ function WordWrapColumnInput({
         <span className="text-[11px] text-muted-foreground">columns</span>
       </div>
     </SettingRow>
+  );
+}
+
+function PdfPreviewSizeControls({
+  width,
+  height,
+  onChangeSize,
+  onChangeWidth,
+  onChangeHeight,
+}: {
+  width: number;
+  height: number;
+  onChangeSize: (width: number, height: number) => void;
+  onChangeWidth: (width: number) => void;
+  onChangeHeight: (height: number) => void;
+}) {
+  const [widthDraft, setWidthDraft] = useState(String(width));
+  const [heightDraft, setHeightDraft] = useState(String(height));
+
+  useEffect(() => {
+    setWidthDraft(String(width));
+  }, [width]);
+
+  useEffect(() => {
+    setHeightDraft(String(height));
+  }, [height]);
+
+  const activePreset =
+    PDF_PREVIEW_SIZE_PRESETS.find(
+      (preset) => preset.width === width && preset.height === height,
+    )?.id ?? "custom";
+
+  const commitWidth = () => {
+    const n = Number(widthDraft);
+    if (!Number.isFinite(n)) {
+      setWidthDraft(String(width));
+      return;
+    }
+    const clamped = clampPdfPreviewWidth(n);
+    setWidthDraft(String(clamped));
+    if (clamped !== width) onChangeWidth(clamped);
+  };
+
+  const commitHeight = () => {
+    const n = Number(heightDraft);
+    if (!Number.isFinite(n)) {
+      setHeightDraft(String(height));
+      return;
+    }
+    const clamped = clampPdfPreviewHeight(n);
+    setHeightDraft(String(clamped));
+    if (clamped !== height) onChangeHeight(clamped);
+  };
+
+  return (
+    <>
+      <SettingRow
+        title="Reference preview size"
+        description="Floating popup window size when Cmd/Ctrl + Right-clicking a PDF link or equation reference."
+      >
+        <Select
+          value={activePreset}
+          onValueChange={(value) => {
+            const preset = PDF_PREVIEW_SIZE_PRESETS.find((p) => p.id === value);
+            if (preset) onChangeSize(preset.width, preset.height);
+          }}
+        >
+          <SelectTrigger size="sm" className="h-8 w-44 text-[12px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PDF_PREVIEW_SIZE_PRESETS.map((preset) => (
+              <SelectItem
+                key={preset.id}
+                value={preset.id}
+                className="text-[12px]"
+              >
+                {preset.label}
+              </SelectItem>
+            ))}
+            {activePreset === "custom" && (
+              <SelectItem value="custom" className="text-[12px]">
+                Custom ({width} × {height})
+              </SelectItem>
+            )}
+          </SelectContent>
+        </Select>
+      </SettingRow>
+      <SettingRow
+        title="Preview dimensions"
+        description={`Custom width (${PDF_PREVIEW_WIDTH_MIN}–${PDF_PREVIEW_WIDTH_MAX} px) and height (${PDF_PREVIEW_HEIGHT_MIN}–${PDF_PREVIEW_HEIGHT_MAX} px).`}
+      >
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            aria-label="PDF preview width"
+            min={PDF_PREVIEW_WIDTH_MIN}
+            max={PDF_PREVIEW_WIDTH_MAX}
+            step={20}
+            value={widthDraft}
+            onChange={(e) => setWidthDraft(e.target.value)}
+            onBlur={commitWidth}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
+            className="h-8 w-20 rounded-md border border-border bg-background px-2.5 text-right text-[12px] md:text-[12px] tabular-nums outline-none focus:border-foreground/40 focus-visible:ring-0 focus-visible:border-foreground/40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          />
+          <span className="text-[11px] text-muted-foreground">×</span>
+          <Input
+            type="number"
+            aria-label="PDF preview height"
+            min={PDF_PREVIEW_HEIGHT_MIN}
+            max={PDF_PREVIEW_HEIGHT_MAX}
+            step={20}
+            value={heightDraft}
+            onChange={(e) => setHeightDraft(e.target.value)}
+            onBlur={commitHeight}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
+            className="h-8 w-20 rounded-md border border-border bg-background px-2.5 text-right text-[12px] md:text-[12px] tabular-nums outline-none focus:border-foreground/40 focus-visible:ring-0 focus-visible:border-foreground/40 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          />
+          <span className="text-[11px] text-muted-foreground">px</span>
+        </div>
+      </SettingRow>
+    </>
   );
 }
