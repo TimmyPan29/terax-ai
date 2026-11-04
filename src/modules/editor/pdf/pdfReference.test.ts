@@ -24,7 +24,14 @@ function fixture(dest: unknown) {
         ? { getAnnotations: async () => [{ id: "link", dest }] }
         : target,
     ),
-    getDestination: vi.fn(async () => [0, { name: "XYZ" }, 20, 700]),
+    getDestination: vi.fn(
+      async (_name: string): Promise<unknown[] | null> => [
+        0,
+        { name: "XYZ" },
+        20,
+        700,
+      ],
+    ),
     getPageIndex: vi.fn(async () => 0),
   };
   return {
@@ -62,6 +69,57 @@ describe("reference preview", () => {
     );
     expect(calls.getPageIndex).toHaveBeenCalledWith({ num: 8, gen: 0 });
     expect(result).toMatchObject({ page: 1, y: 200 });
+  });
+  it("recovers a stale equation name from a unique section-qualified anchor", async () => {
+    const { document, calls } = fixture("equation.3");
+    calls.getDestination.mockImplementation(async (name: string) => {
+      if (name === "equation.3") return [0, { name: "Fit" }];
+      if (name === "equation.2.3") return [2, { name: "XYZ" }, 120, 600];
+      return null;
+    });
+    const result = await renderReference(
+      document,
+      2,
+      "link",
+      new AbortController().signal,
+    );
+    expect(result).toMatchObject({ page: 3, x: 120, y: 200 });
+    expect(calls.getPage).toHaveBeenCalledWith(3);
+    const firstLookupCount = calls.getDestination.mock.calls.length;
+    await renderReference(document, 2, "link", new AbortController().signal);
+    expect(calls.getDestination).toHaveBeenCalledTimes(firstLookupCount + 1);
+  });
+  it("does not guess when a stale equation anchor is absent or ambiguous", async () => {
+    for (const ambiguous of [false, true]) {
+      const { document, calls, render } = fixture("equation.3");
+      calls.getDestination.mockImplementation(async (name: string) => {
+        if (name === "equation.3") return [0, { name: "Fit" }];
+        if (ambiguous && ["equation.2.3", "equation.4.3"].includes(name))
+          return [2, { name: "XYZ" }, 120, 600];
+        return null;
+      });
+      expect(
+        await renderReference(
+          document,
+          2,
+          "link",
+          new AbortController().signal,
+        ),
+      ).toBeNull();
+      expect(render).not.toHaveBeenCalled();
+    }
+  });
+  it("preserves ordinary first-page destinations and citations", async () => {
+    const { document, calls } = fixture("cite.example");
+    calls.getDestination.mockResolvedValue([0, { name: "Fit" }]);
+    const result = await renderReference(
+      document,
+      2,
+      "link",
+      new AbortController().signal,
+    );
+    expect(result?.page).toBe(1);
+    expect(calls.getDestination).toHaveBeenCalledTimes(1);
   });
   it("does not render missing or cancelled references", async () => {
     const { document, render } = fixture(null);
